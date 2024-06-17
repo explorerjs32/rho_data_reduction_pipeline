@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-# rho_data_reduction_pipeline
-=======
-<<<<<<< HEAD
-# rho_data_reduction_pipeline
-=======
-<<<<<<< HEAD
-# rho_data_reduction_pipeline
-This repository contains the codes that make up the Rosemary Hill Observatory (RHO) data reduction pipeline and time series analysis for photometric calculations.
-=======
 # Data Reduction Pipeline
 
 This project provides a data reduction pipeline for processing astronomical data stored in FITS files. The pipeline extracts relevant information from FITS file headers and compiles it into pandas DataFrames for further analysis.
