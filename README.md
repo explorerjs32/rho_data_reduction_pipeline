@@ -9,7 +9,7 @@ This project provides a data reduction pipeline for processing astronomical data
 
 ## Usage
 
-To use the data reduction pipeline, you need to specify the directory where your collected FITS data is stored. You can also optionally specify directories for bias, dark, flat, and light frames.
+To use the data reduction pipeline, you need to specify the directory where your collected FITS data is stored. You can also optionally specify directories for bias, dark, flat, and light frames. 
 
 ### Command Line Arguments
 
@@ -19,3 +19,6 @@ To use the data reduction pipeline, you need to specify the directory where your
 - `-f` or `--flat_frames`: Directory where the flat frames are stored.
 - `-l` or `--light_frames`: Directory where the light (science) frames are stored.
 
+For example, when running from the command line, in the rho_data_reduction_pipeline folder:
+python data_reduction_codes/image_reduction.py -D data/2024-04-15/
+NOTE: you must add the "/" at the end of the directory specifying where the data is located, or the program will not be able to navigate inside that folder 
