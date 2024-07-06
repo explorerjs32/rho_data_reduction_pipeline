@@ -69,6 +69,40 @@ def get_frame_info(data_dir, file_list):
     return frame_info_df, observing_log_df
 
 
+def create_master_bias(frame_info_df, data_dir):
+
+    '''
+
+    Identifies bias frames, compiles and returns them using numpy median method
+
+    Using the data extracted from fits by get_frame_info, this function compiles the various
+    frames that have the bias identification into biases_files. It then proceeds to collect
+    the data of each of the frames into biases_data. Finally, the collection of data is then
+    combined using the numpy median method into the master_bias variable. That is then
+    returned.
+
+    Args:
+        frame_info_df: (Pandas DF list) Collection of frame data at given directory
+        data_dir: (Str) Path leading to the directory desired for analysis
+
+    Returns:
+        master_bias: (List of Lists of ints (?)) Median of master bias data used for subsequent
+        calculations
+
+    '''
+
+    biases_files = []
+
+    for col, row in frame_info_df.iterrows():
+        if row["Frame"] == "Bias":
+            biases_files.append(row)
+
+    biases_data = np.array([fits.getdata(data_dir + frame["Files"]).astype(float) for frame in biases_files])
+
+    master_bias = np.median(biases_data, axis=0)
+
+    return master_bias
+
 
 # Define the arguments to parse into the script
 parser = argparse.ArgumentParser(description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
@@ -85,4 +119,5 @@ args = parser.parse_args()
 # Extract the frame information from the collected data and the observing log
 frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data))
 
-
+# Identify master bias frames and combine them
+master_bias = create_master_bias(frame_info_df, "../data/2024-04-15/")
