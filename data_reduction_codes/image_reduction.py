@@ -82,19 +82,13 @@ def get_frame_info(data_dir, file_list):
     return frame_info_df, observing_log_df
 
 
-def create_master_darks(frame_info_df, observing_log_df):
+def create_master_darks(frame_info_df):
     """
     Creates a list of master darks from the information in the two dataframes.
 
     First, isolates the dark frames and how many unique exposures there are, then iterates through
     the list of darks for each exposure time to gather the dark frames for a specific exposure time, which
     it will median combine into a master dark.
-
-
-    NOTE: this could probably be done with dictionaries. This does work, but for compatibility reasons should we
-    choose to prioritize dictionaries, I will rewrite this to use dictionaries (or create another function version
-    that uses dictionaries)
-
 
     Args:
         frame_info_df: the frame information dataframe
@@ -142,4 +136,4 @@ args = parser.parse_args()
 frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data))
 
 # create the master darks
-dark_times, master_darks = create_master_darks(frame_info_df, observing_log_df)
+dark_times, master_darks = create_master_darks(frame_info_df)
