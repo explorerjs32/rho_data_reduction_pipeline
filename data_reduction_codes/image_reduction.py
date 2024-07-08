@@ -86,9 +86,8 @@ def create_master_darks(frame_info_df, observing_log_df):
     """
     Creates a list of master darks from the information in the two dataframes.
 
-
-    First, makes of list of how many different dark exposure times there are, then iterates through
-    the list of files for each exposure time to gather the dark frames for a specific exposure time, which
+    First, isolates the dark frames and how many unique exposures there are, then iterates through
+    the list of darks for each exposure time to gather the dark frames for a specific exposure time, which
     it will median combine into a master dark.
 
 
@@ -104,34 +103,23 @@ def create_master_darks(frame_info_df, observing_log_df):
 
     Returns:
         dark_exposure_times: a list of master dark exposure times (float) that correlate to the master darks
-        master_darks: a list of master darks. Each object in the list is fits data.
-
-
+        master_darks: a dictionary of master darks. Each object in the list is fits data.
+            Key: "master_darks_[0.0]s" where [0.0] is replaced with the exposure time
+            Value: fits data (2D array of pixel counts)
     """
-    # creating the master darks- one for each exposure time.
-    # practice dataset has 20 15sec darks and 5 100sec darks - access info from observing_log
-
+    # creating the master darks- one for each exposure time.]
     # for each unique exposure (entry in observing log that is a dark frame), get that exposure time
-    dark_exposure_times = []
-    for index, row in observing_log_df.iterrows():
-        # create list of unique dark exposure times
-        if (row['Frame'] == 'Dark'):
-            dark_exposure_times.append(row['Exptime'])
+    darks_df = frame_info_df[frame_info_df['Frame'] == 'Dark'].reset_index(drop=True)
+    dark_exposure_times = darks_df['Exptime'].unique()
 
-    '''go through the other dataframes and grab the ones of that exposure length to create the master-
-           this could probably be optimized, it currently iterates through frame_info_df len(dark_exposure_times) times,
-           the other option is iterating through dark_exposure_times len(frame_info_df) times,
-           I wonder if there's a way to only have to iterate through both 1 time, I just don't know currently.
-    '''
-    master_darks = []
+    #go through the darks of that exposure length to create the master-
+    master_darks = {}
     for exp in dark_exposure_times:
         darks_exp = []
-        # put the data from each of these dark frames into the list
-        for index, row in frame_info_df.iterrows():
-            if (row["Frame"] == 'Dark' and row["Exptime"] == exp):
+        for index, row in darks_df.iterrows():
+            if (row["Exptime"] == exp):
                 darks_exp.append(fits.getdata(f"{args.data}{row['Files']}"))
-        # have all the dark frame data for exp time, combine into a master dark:
-        master_darks.append(np.median(np.array(darks_exp), axis=0))
+        master_darks["master_dark_"+ str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks
