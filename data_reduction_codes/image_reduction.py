@@ -86,21 +86,19 @@ def create_master_bias(frame_info_df, data_dir):
         data_dir: (Str) Path leading to the directory desired for analysis
 
     Returns:
-        master_bias: (List of Lists of ints (?)) Median of master bias data used for subsequent
+        master_bias: (2D array of integers) Median of master bias data used for subsequent
         calculations
 
     '''
 
-    biases_files = []
+    # Filtering dataframes that are labeled as bias using df indexing
+    biases_df = frame_info_df[frame_info_df["Frame"] == "Bias"].reset_index(drop=True)
 
-    for col, row in frame_info_df.iterrows():
-        if row["Frame"] == "Bias":
-            biases_files.append(row)
+    # Expanding data within dataframes of label bias into an array
+    biases_data = np.array([fits.getdata(data_dir + file).astype(float) for file in biases_df["Files"].values])
 
-    biases_data = np.array([fits.getdata(data_dir + frame["Files"]).astype(float) for frame in biases_files])
-
+    # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
-
     return master_bias
 
 
@@ -120,4 +118,4 @@ args = parser.parse_args()
 frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data))
 
 # Identify master bias frames and combine them
-master_bias = create_master_bias(frame_info_df, "../data/2024-04-15/")
+master_bias = create_master_bias(frame_info_df, args.data)
