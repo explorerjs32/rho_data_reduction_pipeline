@@ -1,0 +1,104 @@
+import sys
+import numpy as np
+import pandas as pd
+from astropy.io import fits
+import os
+import argparse
+
+
+# Stolen from Hannah's code so I could see if mine would run!
+def get_frame_info(data_dir):
+    """
+    Extracts information from FITS file headers and returns it as pandas DataFrames.
+    """
+    # List all files in the directory
+    file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits')]
+
+    # Define the lists to store the data
+    exposure_times = []
+    filters = []
+    frames = []
+    objects = []
+
+    # Loop through the files to get the information out of the fits file header
+    for file in file_list:
+        file_path = os.path.join(data_dir, file)
+        with fits.open(file_path) as hdul:
+            header = hdul[0].header
+
+            # Get the object name
+            obj_name = header.get('OBJECT', 'Unknown')
+            objects.append(obj_name)
+
+            # Get the frame type
+            frame = header.get('FRAME', 'Unknown')
+            frames.append(frame)
+
+            # Get the exposure time
+            exp_time = header.get('EXPTIME', 0.0)
+            exposure_times.append(exp_time)
+
+            # Get the filter used for the exposure
+            filter_name = header.get('FILTER', 'Unknown')
+            filters.append(filter_name)
+
+    # Generate a dataframe containing the frame information
+    frame_info_df = pd.DataFrame({'Files': file_list,
+                                  'Object': objects,
+                                  'Frame': frames,
+                                  'Filter': filters,
+                                  'Exptime': exposure_times})
+
+    # Generate the observing log based on the frame information
+    observing_log_df = frame_info_df.groupby(by=['Object', 'Frame', 'Filter', 'Exptime']).size().to_frame(
+        name='Exposures').reset_index()
+
+    return frame_info_df, observing_log_df
+
+def create_master_flats(frame_info_df, data_dir):
+    """
+    Creates a list of normalized master flats for each filter from the frame information dataframe.
+    """
+    # Isolate the flat frames from the dataframe
+    flats_df = frame_info_df[frame_info_df['Frame'] == 'Flat'].reset_index(drop=True)
+    flat_filters = flats_df['Filter'].unique()
+
+    
+    # Create the master flats
+    master_flats = {}
+    for filter_name in flat_filters:
+        flats_filter = []
+        for index, row in flats_df.iterrows():
+            if row["Filter"] == filter_name:
+                file_path = os.path.join(data_dir, row['Files'])
+                flats_filter.append(fits.getdata(file_path))
+        
+        # Combine the flats and normalize the master flat
+        master_flat = np.median(np.array(flats_filter), axis=0)
+        normalized_master_flat = master_flat / np.median(master_flat)
+        master_flats["master_flat_" + filter_name] = normalized_master_flat
+
+    return flat_filters, master_flats
+
+# Define the arguments to parse into the script - stolen from Hannah's code!!
+parser = argparse.ArgumentParser(
+    description="Arguments to parse for the data reduction pipeline. Primarily focusing on the directories where the data is stored.")
+
+parser.add_argument('-D', '--data', type=str, required=True, help="Directory where the collected data is stored.")
+parser.add_argument('-b', '--bias_frames', type=str, default='', help="Directory where the bias frames are stored.")
+parser.add_argument('-d', '--dark_frames', type=str, default='', help="Directory where the dark frames are stored.")
+parser.add_argument('-f', '--flat_frames', type=str, default='', help="Directory where the flat frames are stored.")
+parser.add_argument('-l', '--light_frames', type=str, default='', help="Directory where the light (science) frames are stored.")
+
+
+args = parser.parse_args()
+
+# Extract the frame information from the collected data and the observing log
+frame_info_df, observing_log_df = get_frame_info(args.data)
+
+# Create the master flats
+flat_filters, master_flats = create_master_flats(frame_info_df, args.data)
+
+# Display the results (for verification)
+print("Flat Filters:", flat_filters)
+print("Master Flats:", master_flats)
