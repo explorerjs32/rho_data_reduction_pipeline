@@ -38,7 +38,7 @@ def get_frame_info(data_dir, file_list):
         "/" at the end of it, like "data/2024-04-15/" rather than "data/2024-04-15". If the latter is entered
         as a command line argument, the program will search for files in the data folder like "data/2024-04-15rho..."
         instead of "data/2024-04-15/rho..." which obviously does not exist and results in an error.
- 
+
         This is just something to keep in mind when running it and later on if we work on a way to automate running
         this program. Optionally, we could have a function that will add the "/" at the end of the string if it is
         missing, but for now it's not a big deal.
@@ -106,17 +106,51 @@ def create_master_darks(frame_info_df):
     darks_df = frame_info_df[frame_info_df['Frame'] == 'Dark'].reset_index(drop=True)
     dark_exposure_times = darks_df['Exptime'].unique()
 
-    #go through the darks of that exposure length to create the master-
+    # go through the darks of that exposure length to create the master-
     master_darks = {}
     for exp in dark_exposure_times:
         darks_exp = []
         for index, row in darks_df.iterrows():
             if (row["Exptime"] == exp):
                 darks_exp.append(fits.getdata(f"{args.data}{row['Files']}"))
-        master_darks["master_dark_"+ str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
+        master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks
+
+
+def create_master_bias(frame_info_df, data_dir):
+
+    '''
+
+    Identifies bias frames, compiles and returns them using numpy median method
+
+    Using the data extracted from fits by get_frame_info, this function compiles the various
+    frames that have the bias identification into biases_files. It then proceeds to collect
+    the data of each of the frames into biases_data. Finally, the collection of data is then
+    combined using the numpy median method into the master_bias variable. That is then
+    returned.
+
+    Args:
+        frame_info_df: (Pandas DF list) Collection of frame data at given directory
+        data_dir: (Str) Path leading to the directory desired for analysis
+
+    Returns:
+        master_bias: (2D array of integers) Median of master bias data used for subsequent
+        calculations
+
+    '''
+
+    # Filtering dataframes that are labeled as bias using df indexing
+    biases_df = frame_info_df[frame_info_df["Frame"] == "Bias"].reset_index(drop=True)
+
+    # Expanding data within dataframes of label bias into an array
+    biases_data = np.array([fits.getdata(data_dir + file).astype(float) for file in biases_df["Files"].values])
+
+    # Using median combine to form a final master bias frame and then return it
+    master_bias = np.median(biases_data, axis=0)
+    return master_bias
+
 
 
 # Define the arguments to parse into the script
@@ -137,3 +171,7 @@ frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data
 
 # create the master darks
 dark_times, master_darks = create_master_darks(frame_info_df)
+
+# Identify master bias frames and combine them
+master_bias = create_master_bias(frame_info_df, args.data)
+
