@@ -152,6 +152,7 @@ def create_master_bias(frame_info_df, data_dir):
     return master_bias
 
 
+
 # Define the arguments to parse into the script
 parser = argparse.ArgumentParser(
     description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
@@ -173,3 +174,4 @@ dark_times, master_darks = create_master_darks(frame_info_df)
 
 # Identify master bias frames and combine them
 master_bias = create_master_bias(frame_info_df, args.data)
+
