@@ -151,6 +151,73 @@ def create_master_bias(frame_info_df, data_dir):
     master_bias = np.median(biases_data, axis=0)
     return master_bias
 
+#stealing unfinished flat frame code (bc I need the flats- i'll replace with finished code whenever that happens)
+def create_master_flats(frame_info_df, data_dir):
+    """
+    Creates a list of normalized master flats for each filter from the frame information dataframe.
+    """
+    # Isolate the flat frames from the dataframe
+    flats_df = frame_info_df[frame_info_df['Frame'] == 'Flat'].reset_index(drop=True)
+    flat_filters = flats_df['Filter'].unique()
+
+    # Create the master flats
+    master_flats = {}
+    for filter_name in flat_filters:
+        flats_filter = []
+        for index, row in flats_df.iterrows():
+            if row["Filter"] == filter_name:
+                file_path = os.path.join(data_dir, row['Files'])
+                flats_filter.append(fits.getdata(file_path))
+
+        # Combine the flats and normalize the master flat
+        master_flat = np.median(np.array(flats_filter), axis=0)
+        normalized_master_flat = master_flat / np.median(master_flat)
+        master_flats["master_flat_" + filter_name] = normalized_master_flat
+
+    return flat_filters, master_flats
+
+#hot/cold pixel removal based on the normalized flats
+def remove_bad_pixels(flat_filters, master_flats, frame_info_df):
+    """
+    Identifies bad pixels, creates a mask for them, and takes them out of science images (not yet finished)
+
+    Args:
+        flat_filters: the list of filter types to help access the master flats
+        master_flats: the dictionary of master flats
+        frame_info_df: the raw science images
+
+    Returns:
+        [temp] a mask array of the same size as the fits images where a 0 means the pixel is normal at that location
+        and a 1 means it is a bad pixel.s
+
+    """
+    #create a mask for hot pixels- 1 is a bad pixel, 0 is a normal pixel
+    def bad_pixel(pixel_data):
+        return 1 if (pixel_data > 2 or pixel_data < 0.5) else 0
+    bad_pixel_v = np.vectorize(bad_pixel)
+    mask = bad_pixel_v(master_flats["master_flat_" + flat_filters[0]])
+
+    '''
+    After the mask is created, need to decide how to deal with hot pixels: 
+        remove them before or after reducing with darks / biases / flats / etc?
+        replacement policy: I was thinking of taking the average of the surrounding pixels and replacing it with that?
+        which images get the treatment: only the science images? should removal happen on the masters as well? 
+    '''
+    #apply the mask to science images? is it too early for that? wouldn't the masters also have the bad pixels?
+    #how choose what to replace the hot pixel with? should it check the surrounding pixels and take an average of those?
+    for i in range(len(master_flats["master_flat_" + flat_filters[0]])):
+        for j in range(len(master_flats["master_flat_" + flat_filters[0]][i])):
+            if(mask[i][j] == 1):
+                #testing with the master flat
+                master_flats["master_flat_" + flat_filters[0]][i][j] = 1
+
+    return mask
+
+
+def create_fits(data, name):
+    hdu = fits.PrimaryHDU(data=data)
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(name + ".fits")
 
 
 # Define the arguments to parse into the script
@@ -175,3 +242,15 @@ dark_times, master_darks = create_master_darks(frame_info_df)
 # Identify master bias frames and combine them
 master_bias = create_master_bias(frame_info_df, args.data)
 
+# Create the master flats
+flat_filters, master_flats = create_master_flats(frame_info_df, args.data)
+
+#remove the bad pixels
+mask = remove_bad_pixels(flat_filters, master_flats, frame_info_df)
+
+#temporary: create fits file image code
+'''
+hdu = fits.PrimaryHDU(data=master_flats["master_flat_" + flat_filters[0]])
+hdul = fits.HDUList([hdu])
+hdul.writeto('flat_test.fits')
+'''
