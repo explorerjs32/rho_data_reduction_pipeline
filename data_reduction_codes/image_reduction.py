@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from astropy.io import fits
+from astropy.visualization import ZScaleInterval, ImageNormalize
 import os
 import argparse
 
@@ -16,7 +17,8 @@ def get_frame_info(data_dir, file_list):
     compiles this information into a pandas DataFrame. Additionally, it generates an observing
     log DataFrame based on the extracted frame information.
 
-    Args:
+
+    Parameters:
     data_dir (str): The directory where the FITS files are stored.
     file_list (list of str): A list of FITS file names to be processed.
 
@@ -176,6 +178,40 @@ def create_master_flats(frame_info_df, data_dir):
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
     return flat_filters, master_flats
+
+def image_reduction(frame_info_df, master_darks, master_bias, data_dir):
+    """
+
+    Isolates the raw images and subtract the master_dark for image reduction
+
+    The dataframes containing the light images are isolated into
+
+    Args:
+        frame_info_df
+        master_darks
+        master_bias
+        data_dir
+
+    Returns:
+         bias_removed_dark_subtracted_light_frames - A collection of images which remove the master_darks and bias
+            affecting the image and skewing the data.
+
+    """
+
+    # Collect all raw images
+    raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
+
+    # Extract data using np.array method
+    raw_image_data = np.array([fits.getdata(data_dir + file).astype(float) for file in raw_image_df["Files"].values])
+
+    # Build the dark subtracted data array
+    # Key error, don't know exactly how to access proper key in master_darks (data from raw image df?)
+    dark_subtracted_light_frames = np.array((light_image / master_darks["Master_Darks_" + "s"]) for light_image in raw_image_data)
+
+    # Conduct removal of bias from images
+    bias_removed_dark_subtracted_light_frames = np.array((dark_subtracted_light_image - master_bias) for dark_subtracted_light_image in dark_subtracted_light_frames)
+
+    return bias_removed_dark_subtracted_light_frames
 
 def image_reduction(frame_info_df, master_darks, master_bias, data_dir):
     """
