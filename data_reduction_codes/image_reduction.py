@@ -179,73 +179,83 @@ def create_master_flats(frame_info_df, data_dir):
 
     return flat_filters, master_flats
 
-def image_reduction(frame_info_df, master_darks, master_bias, data_dir):
+
+def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
     """
 
-    Isolates the raw images and subtract the master_dark for image reduction
+    Isolates the raw images, subtract the master_dark for image reduction, and flat fields the final product
 
-    The dataframes containing the light images are isolated into
+    The dataframes containing the light images are isolated so that only the light values are extracted. Then,
+    iterating through every one of the dataframe rows, the raw_image_data and the raw_image_exp_time. The function
+    then collects information on the closest (if not perfect) match of the dark_frame based on the exposure_times
+    recorded. Then it collects information on the flat_frame required for the given filter of the current image.
+    Lastly, it subtracts the dark_frame and divides that by the flat_frame to provide the
+    dark_subtracted_flat_fielded_light_frames in the end.
 
     Args:
-        frame_info_df
-        master_darks
+        frame_info_df - Pandas DataFrame containing header information for every provided
+        dark_times - Collection of the master_dark exposure times
+        master_darks - Collection of key-value pairs of dark_frame exposure times and dark_frame data
+        flat_filters - Collection of all unique filters in the
+        master_flats
         master_bias
         data_dir
 
     Returns:
-         bias_removed_dark_subtracted_light_frames - A collection of images which remove the master_darks and bias
-            affecting the image and skewing the data.
+         dark_subtracted_flat_fielded_light_frames - A collection image data which has the master_dark reduced and
+            flat fields the final image
 
     """
 
-    # Collect all raw images
+    # Initializes a dataframe containing all the information on raw images
     raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
 
-    # Extract data using np.array method
-    raw_image_data = np.array([fits.getdata(data_dir + file).astype(float) for file in raw_image_df["Files"].values])
+    # Initialize the image reduced final product
+    dark_subtracted_flat_fielded_light_frames = []
 
-    # Build the dark subtracted data array
-    # Key error, don't know exactly how to access proper key in master_darks (data from raw image df?)
-    dark_subtracted_light_frames = np.array((light_image / master_darks["Master_Darks_" + "s"]) for light_image in raw_image_data)
+    # Iterate through files and create individual reduced data images
+    for index in range(len(raw_image_df)):
 
-    # Conduct removal of bias from images
-    bias_removed_dark_subtracted_light_frames = np.array((dark_subtracted_light_image - master_bias) for dark_subtracted_light_image in dark_subtracted_light_frames)
+        # Identify current file, file data, and the current exposure time
+        file = raw_image_df["Files"][index]
+        raw_image_data = fits.getdata(os.path.join(data_dir, file))
+        raw_image_exp_time = raw_image_df["Exptime"][index]
 
-    return bias_removed_dark_subtracted_light_frames
+        # Identify dark_frame match OR closest match
+        dark_frame = []
+        # If identical match found use that given current dark
+        if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
+            dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
+        # If not, find the closest match by:
+        else:
+            # Subtracting all the dark exposure times by the raw_image_exposure_time (No negative times allowed)
+            temp_times = []
+            for dark in dark_times:
+                temp_times.append(abs(dark - raw_image_exp_time))
+            # Sorting the array to find the smallest difference
+            temp_times.sort()
+            # Find the closest dark_exposure_time match using implementation from
+            # https://www.geeksforgeeks.org/python-find-closest-number-to-k-in-given-list/
+            # Then isolate the dark frame based on the exposure time for future use
+            dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
 
-def image_reduction(frame_info_df, master_darks, master_bias, data_dir):
-    """
+        # Identify flat_frame match OR provide feedback on missing filters for master_flats
+        flat_frame = []
+        flat_frame_found = False
+        if "master_flat_" + raw_image_df["Filter"][index] in master_flats:
+            # If filter key found, use the given flat_frame
+            flat_frame = master_flats["master_flat_" + raw_image_df["Filter"][index]]
+            flat_frame_found = True
+        else:
+            # Otherwise, identify the missing filters
+            print("Filter Error: missing filter " + raw_image_df["Filter"][index])
 
-    Isolates the raw images and subtract the master_dark for image reduction
+        # Perform image reduction now that everything is in place (if statement required for missing filter errors)
+        if flat_frame_found:
+            dark_subtracted_flat_fielded_light_frames.append((raw_image_data - dark_frame) / flat_frame)
 
-    The dataframes containing the light images are isolated into
-
-    Args:
-        frame_info_df
-        master_darks
-        master_bias
-        data_dir
-
-    Returns:
-         bias_removed_dark_subtracted_light_frames - A collection of images which remove the master_darks and bias
-            affecting the image and skewing the data.
-
-    """
-
-    # Collect all raw images
-    raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
-
-    # Extract data using np.array method
-    raw_image_data = np.array([fits.getdata(data_dir + file).astype(float) for file in raw_image_df["Files"].values])
-
-    # Build the dark subtracted data array
-    # Key error, don't know exactly how to access proper key in master_darks (data from raw image df?)
-    dark_subtracted_light_frames = np.array((light_image / master_darks["Master_Darks_" + "s"]) for light_image in raw_image_data)
-
-    # Conduct removal of bias from images
-    bias_removed_dark_subtracted_light_frames = np.array((dark_subtracted_light_image - master_bias) for dark_subtracted_light_image in dark_subtracted_light_frames)
-
-    return bias_removed_dark_subtracted_light_frames
+    # Finally, return the image reduced product
+    return dark_subtracted_flat_fielded_light_frames
 
 
 # Define the arguments to parse into the script
@@ -271,11 +281,8 @@ master_bias = create_master_bias(frame_info_df, args.data)
 # create the master darks
 dark_times, master_darks = create_master_darks(frame_info_df)
 
-# Identify master bias frames and combine them
-master_bias = create_master_bias(frame_info_df, args.data)
-
-# Conduct image reduction process
-reduced_image = image_reduction(frame_info_df, master_darks, master_bias, args.data)
-
 # Create master flats
 flat_filters, master_flats = create_master_flats(frame_info_df, args.data)
+
+# Conduct image reduction process
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
