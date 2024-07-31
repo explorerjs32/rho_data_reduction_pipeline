@@ -242,13 +242,15 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
         # Identify flat_frame match OR provide feedback on missing filters for master_flats
         flat_frame = []
         flat_frame_found = False
+        # FIXME - Fix filter issue
         if "master_flat_" + raw_image_df["Filter"][index] in master_flats:
             # If filter key found, use the given flat_frame
             flat_frame = master_flats["master_flat_" + raw_image_df["Filter"][index]]
             flat_frame_found = True
         else:
             # Otherwise, identify the missing filters
-            print("Filter Error: missing filter " + raw_image_df["Filter"][index])
+            print("Filter Error: missing filter " + raw_image_df["Filter"][index] + " for file " + raw_image_df["Files"][index] +
+                  ". Frame type = " + raw_image_df["Frame"][index])
 
         # Perform image reduction now that everything is in place (if statement required for missing filter errors)
         if flat_frame_found:
