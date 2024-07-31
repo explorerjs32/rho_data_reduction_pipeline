@@ -244,6 +244,15 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     # Initialize the image reduced final product
     dark_subtracted_flat_fielded_light_frames = []
 
+    #create the flat masks
+    def bad_pixel(pixel_data):
+        return 1 if (pixel_data > 2 or pixel_data < 0.5) else 0
+    bad_pixel_v = np.vectorize(bad_pixel)
+    masks = {}
+    for i in range(len(flat_filters)):
+        masks["mask_" + flat_filters[i]] = bad_pixel_v(master_flats["master_flat_" + flat_filters[i]])
+
+
     # Iterate through files and create individual reduced data images
     for index in range(len(raw_image_df)):
 
@@ -287,12 +296,19 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
         if flat_frame_found:
             dark_subtracted_flat_fielded_light_frames.append((raw_image_data - dark_frame) / flat_frame)
 
+            #mask the bad pixels
+            for i in range(len(dark_subtracted_flat_fielded_light_frames[-1])):
+                for j in range(len(dark_subtracted_flat_fielded_light_frames[-1])):
+                    if(masks["mask_" + raw_image_df["Filter"][index]][i][j] == 1):
+                        dark_subtracted_flat_fielded_light_frames[i][j] = -999
+
+
     # Finally, return the image reduced product
     return dark_subtracted_flat_fielded_light_frames
 
 
 #hot/cold pixel removal based on the normalized flats
-def remove_bad_pixels(flat_filters, master_flats, frame_info_df):
+def remove_bad_pixels(flat_filters, master_flats, dark_subtracted_flat_fielded_light_frames):
     """
     Identifies bad pixels, creates a mask for them, and takes them out of science images (not yet finished)
 
@@ -306,6 +322,8 @@ def remove_bad_pixels(flat_filters, master_flats, frame_info_df):
         and a 1 means it is a bad pixel.s
 
     """
+
+    '''put this mask creation right before the loop in the image_reduction function'''
     #create a mask for hot pixels- 1 is a bad pixel, 0 is a normal pixel. makes one for each filter (but theoretically they are the same?)
     def bad_pixel(pixel_data):
         return 1 if (pixel_data > 2 or pixel_data < 0.5) else 0
@@ -319,7 +337,7 @@ def remove_bad_pixels(flat_filters, master_flats, frame_info_df):
     After the mask is created, how to deal with hot pixels: 
         remove them after, only on science images, replace with large negative val (-999)
     '''
-
+    '''include this inside the loop so it can take the right flat mask'''
     #replace with looping through the reduced science images- check filter for right flat
     for i in range(len(master_flats["master_flat_" + flat_filters[0]])):
         for j in range(len(master_flats["master_flat_" + flat_filters[0]][i])):
@@ -361,8 +379,8 @@ dark_times, master_darks = create_master_darks(frame_info_df)
 # Create master flats
 flat_filters, master_flats = create_master_flats(frame_info_df, args.data, dark_times, master_darks, master_bias)
 
-#remove the bad pixels
-mask = remove_bad_pixels(flat_filters, master_flats, frame_info_df)
+# Conduct image reduction process
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
 
 #temporary: create fits file image code
 '''
