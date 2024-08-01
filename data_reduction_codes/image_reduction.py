@@ -142,21 +142,31 @@ def create_master_bias(frame_info_df, data_dir):
     return master_bias
 
 
-def create_master_flats(frame_info_df, data_dir):
+def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, master_bias):
     """
-    Creates a list of normalized master flats for each filter from the frame information dataframe.
+     Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
-    First, isolates the flat frames and iterates through the list of flats for each filter to gather the flat frames.
-    It then median-combines these frames to create a master flat for each filter, normalizing each master flat.
+    The function processes flat frames by first isolating those with the 'Flat' frame type. For each unique filter,
+    it retrieves the associated flat frames, corrects them using either a master dark or master bias based on
+    the exposure time, and then creates a master flat by median-combining these corrected frames. Each master flat
+    is normalized by dividing by its median value.
 
     Args:
-        frame_info_df: DataFrame containing information about the frames, including 'Frame' type and 'Filter'.
-        data_dir: String representing the directory where the flat frames are stored.
+        frame_info_df (pd.DataFrame): DataFrame containing information about the frames, including columns 'Frame',
+            'Filter', and 'Files'. The 'Frame' column should have entries indicating the type of frame (e.g., 'Flat'),
+            the 'Filter' column should specify the filter used, and the 'Files' column should list filenames of the frames.
+        data_dir (str): Directory path where the flat frame files are located.
+        darks_exptimes (list): List of exposure times for the master dark frames.
+        master_darks (dict): Dictionary of master darks. Keys are strings formatted as "master_dark_[exptime]s" where
+            [exptime] is the exposure time, and values are 2D numpy arrays representing the master dark frames.
+        master_bias (numpy.ndarray): 2D numpy array representing the master bias frame.
 
     Returns:
-        flat_filters: A list of unique filter names present in the frame information dataframe.
-        master_flats: A dictionary of master flats. Each key is a string "master_flat_[FilterName]" and each value
-            is a 2D numpy array representing the normalized master flat for that filter.
+        tuple: A tuple containing:
+            - flat_filters (list): A list of unique filter names present in the frame information dataframe.
+            - master_flats (dict): A dictionary of master flats. Each key is a string "master_flat_[FilterName]" where
+              [FilterName] is the filter name, and each value is a 2D numpy array representing the normalized master
+              flat for that filter.
     """
 
     # Isolate the flat frames from the dataframe
@@ -165,12 +175,26 @@ def create_master_flats(frame_info_df, data_dir):
 
     # Create the master flats
     master_flats = {}
+
     for filter_name in flat_filters:
         flats_filter = []
+
         for index, row in flats_df.iterrows():
+
             if row["Filter"] == filter_name:
                 file_path = os.path.join(data_dir, row['Files'])
                 flats_filter.append(fits.getdata(file_path))
+
+            # Get the exposure time of the flat frame
+            flat_exptime = fits.getheader(os.path.join(data_dir, row['Files']))['EXPTIME']
+
+            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+                # print(f"subtracting {flat_exptime}s master dark from {row['Files']}")
+                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
+                
+            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+                # print(f"subtracting master bias from {row['Files']}")
+                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_bias)
 
         # Combine the flats and normalize the master flat
         master_flat = np.median(np.array(flats_filter), axis=0)
