@@ -35,16 +35,6 @@ def get_frame_info(data_dir, file_list):
                           with a column 'Exposures' indicating the number of exposures for each group.
     """
 
-    ''' NOTE: inside this function, getheader uses [data_dir][file], which assumes that data_dir (args.data) has
-        "/" at the end of it, like "data/2024-04-15/" rather than "data/2024-04-15". If the latter is entered
-        as a command line argument, the program will search for files in the data folder like "data/2024-04-15rho..."
-        instead of "data/2024-04-15/rho..." which obviously does not exist and results in an error.
-
-        This is just something to keep in mind when running it and later on if we work on a way to automate running
-        this program. Optionally, we could have a function that will add the "/" at the end of the string if it is
-        missing, but for now it's not a big deal.
-    '''
-
     # Define the lists to store the data
     exposure_times = []
     filters = []
@@ -54,19 +44,19 @@ def get_frame_info(data_dir, file_list):
     # Loop through the light frames to get the information out of the fits file header
     for file in file_list:
         # Get the object name
-        obj_name = fits.getheader(f"{data_dir}{file}")['OBJECT']
+        obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
         objects.append(obj_name)
 
         # Get the frame type
-        frame = fits.getheader(f"{data_dir}{file}")['FRAME']
+        frame = fits.getheader(os.path.join(data_dir, file))['FRAME']
         frames.append(frame)
 
         # Get the exposure time
-        exp_time = fits.getheader(f"{data_dir}{file}")['EXPTIME']
+        exp_time = fits.getheader(os.path.join(data_dir, file))['EXPTIME']
         exposure_times.append(exp_time)
 
         # Get the filter used for the exposure
-        filter = fits.getheader(f"{data_dir}{file}")['FILTER']
+        filter = fits.getheader(os.path.join(data_dir, file))['FILTER']
         filters.append(filter)
 
     # Generate a dataframe containing the frame information
@@ -113,7 +103,7 @@ def create_master_darks(frame_info_df):
         darks_exp = []
         for index, row in darks_df.iterrows():
             if (row["Exptime"] == exp):
-                darks_exp.append(fits.getdata(f"{args.data}{row['Files']}"))
+                darks_exp.append(fits.getdata(os.path.join(args.data, row['Files'])))
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
     # return the darks and the times they correlate to.
@@ -121,7 +111,6 @@ def create_master_darks(frame_info_df):
 
 
 def create_master_bias(frame_info_df, data_dir):
-
     '''
 
     Identifies bias frames, compiles and returns them using numpy median method
@@ -146,7 +135,7 @@ def create_master_bias(frame_info_df, data_dir):
     biases_df = frame_info_df[frame_info_df["Frame"] == "Bias"].reset_index(drop=True)
 
     # Expanding data within dataframes of label bias into an array
-    biases_data = np.array([fits.getdata(data_dir + file).astype(float) for file in biases_df["Files"].values])
+    biases_data = np.array([fits.getdata(os.path.join(data_dir, file)).astype(float) for file in biases_df["Files"].values])
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
@@ -309,6 +298,68 @@ def create_fits(data, name):
     hdul = fits.HDUList([hdu])
     hdul.writeto(name + ".fits")
 
+def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, master_bias):
+    """
+     Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
+
+    The function processes flat frames by first isolating those with the 'Flat' frame type. For each unique filter,
+    it retrieves the associated flat frames, corrects them using either a master dark or master bias based on
+    the exposure time, and then creates a master flat by median-combining these corrected frames. Each master flat
+    is normalized by dividing by its median value.
+
+    Args:
+        frame_info_df (pd.DataFrame): DataFrame containing information about the frames, including columns 'Frame',
+            'Filter', and 'Files'. The 'Frame' column should have entries indicating the type of frame (e.g., 'Flat'),
+            the 'Filter' column should specify the filter used, and the 'Files' column should list filenames of the frames.
+        data_dir (str): Directory path where the flat frame files are located.
+        darks_exptimes (list): List of exposure times for the master dark frames.
+        master_darks (dict): Dictionary of master darks. Keys are strings formatted as "master_dark_[exptime]s" where
+            [exptime] is the exposure time, and values are 2D numpy arrays representing the master dark frames.
+        master_bias (numpy.ndarray): 2D numpy array representing the master bias frame.
+
+    Returns:
+        tuple: A tuple containing:
+            - flat_filters (list): A list of unique filter names present in the frame information dataframe.
+            - master_flats (dict): A dictionary of master flats. Each key is a string "master_flat_[FilterName]" where
+              [FilterName] is the filter name, and each value is a 2D numpy array representing the normalized master
+              flat for that filter.
+    """
+
+    # Isolate the flat frames from the dataframe
+    flats_df = frame_info_df[frame_info_df['Frame'] == 'Flat'].reset_index(drop=True)
+    flat_filters = flats_df['Filter'].unique()
+
+    # Create the master flats
+    master_flats = {}
+
+    for filter_name in flat_filters:
+        flats_filter = []
+
+        for index, row in flats_df.iterrows():
+
+            if row["Filter"] == filter_name:
+                file_path = os.path.join(data_dir, row['Files'])
+                flats_filter.append(fits.getdata(file_path))
+
+            # Get the exposure time of the flat frame
+            flat_exptime = fits.getheader(os.path.join(data_dir, row['Files']))['EXPTIME']
+
+            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+                # print(f"subtracting {flat_exptime}s master dark from {row['Files']}")
+                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
+                
+            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+                # print(f"subtracting master bias from {row['Files']}")
+                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_bias)
+
+        # Combine the flats and normalize the master flat
+        master_flat = np.median(np.array(flats_filter), axis=0)
+        normalized_master_flat = master_flat / np.median(master_flat)
+        master_flats["master_flat_" + filter_name] = normalized_master_flat
+
+    return flat_filters, master_flats
+
+
 
 # Define the arguments to parse into the script
 parser = argparse.ArgumentParser(
@@ -322,6 +373,7 @@ parser.add_argument('-l', '--light_frames', type=str, default='',
                     help="Directory where the light (science) frames are stored.")
 
 args = parser.parse_args()
+
 
 # Extract the frame information from the collected data and the observing log
 frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data))
@@ -344,3 +396,4 @@ hdu = fits.PrimaryHDU(data=master_flats["master_flat_" + flat_filters[0]])
 hdul = fits.HDUList([hdu])
 hdul.writeto('flat_test.fits')
 '''
+
