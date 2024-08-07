@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from astropy.io import fits
+from astropy.visualization import ZScaleInterval, ImageNormalize
+from skimage.registration import *
+from scipy.ndimage import interpolation as interp
 import os
 import argparse
 
@@ -16,7 +20,8 @@ def get_frame_info(data_dir, file_list):
     compiles this information into a pandas DataFrame. Additionally, it generates an observing
     log DataFrame based on the extracted frame information.
 
-    Args:
+
+    Parameters:
     data_dir (str): The directory where the FITS files are stored.
     file_list (list of str): A list of FITS file names to be processed.
 
@@ -181,11 +186,14 @@ def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, m
             # Get the exposure time of the flat frame
             flat_exptime = fits.getheader(os.path.join(data_dir, row['Files']))['EXPTIME']
 
-            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))[
+                'FILTER'] == filter_name:
                 # print(f"subtracting {flat_exptime}s master dark from {row['Files']}")
-                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
-                
-            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))['FILTER'] == filter_name:
+                flats_filter.append(
+                    fits.getdata(os.path.join(data_dir, row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
+
+            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))[
+                'FILTER'] == filter_name:
                 # print(f"subtracting master bias from {row['Files']}")
                 flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_bias)
 
@@ -195,6 +203,147 @@ def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, m
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
     return flat_filters, master_flats
+
+
+def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
+    """
+
+    Isolates the raw images, subtract the master_dark for image reduction, and flat fields the final product
+
+    The dataframes containing the light images are isolated so that only the light values are extracted. Then,
+    iterating through every one of the dataframe rows, the raw_image_data and the raw_image_exp_time. The function
+    then collects information on the closest (if not perfect) match of the dark_frame based on the exposure_times
+    recorded. Then it collects information on the flat_frame required for the given filter of the current image.
+    Lastly, it subtracts the dark_frame and divides that by the flat_frame to provide the
+    dark_subtracted_flat_fielded_light_frames in the end.
+
+    Args:
+        frame_info_df - Pandas DataFrame containing header information for every provided
+        dark_times - Collection of the master_dark exposure times
+        master_darks - Collection of key-value pairs of dark_frame exposure times and dark_frame data
+        flat_filters - Collection of all unique filters in the
+        master_flats
+        master_bias
+        data_dir
+
+    Returns:
+         dark_subtracted_flat_fielded_light_frames - A collection image data which has the master_dark reduced and
+            flat fields the final image
+
+    """
+
+    # Initializes a dataframe containing all the information on raw images
+    raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
+
+    # Initialize the image reduced final product
+    dark_subtracted_flat_fielded_light_frames = []
+
+    # create the flat masks from reduced flats
+    def bad_pixel(pixel_data):
+        return True if (pixel_data > 2 or pixel_data < 0.5) else False
+
+    bad_pixel_v = np.vectorize(bad_pixel)
+    masks = {}
+    for i in range(len(flat_filters)):
+        masks["mask_" + flat_filters[i]] = bad_pixel_v(master_flats["master_flat_" + flat_filters[i]])
+
+    # Iterate through files and create individual reduced data images
+    for index in range(len(raw_image_df)):
+
+        # Identify current file, file data, and the current exposure time
+        file = raw_image_df["Files"][index]
+        raw_image_data = fits.getdata(os.path.join(data_dir, file))
+        raw_image_exp_time = raw_image_df["Exptime"][index]
+        obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
+
+        # Identify dark_frame match OR closest match
+        dark_frame = []
+        # If identical match found use that given current dark
+        if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
+            dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
+        # If not, find the closest match by:
+        else:
+            # Subtracting all the dark exposure times by the raw_image_exposure_time (No negative times allowed)
+            temp_times = []
+            for dark in dark_times:
+                temp_times.append(abs(dark - raw_image_exp_time))
+            # Sorting the array to find the smallest difference
+            temp_times.sort()
+            # Find the closest dark_exposure_time match using implementation from
+            # https://www.geeksforgeeks.org/python-find-closest-number-to-k-in-given-list/
+            # Then isolate the dark frame based on the exposure time for future use
+            dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
+
+        # Identify flat_frame match OR provide feedback on missing filters for master_flats
+        flat_frame = []
+        flat_frame_found = False
+        # FIXME - Fix filter issue
+        if "master_flat_" + raw_image_df["Filter"][index] in master_flats:
+            # If filter key found, use the given flat_frame
+            flat_frame = master_flats["master_flat_" + raw_image_df["Filter"][index]]
+            flat_frame_found = True
+        else:
+            # Otherwise, identify the missing filters
+            print("Filter Error: missing filter " + raw_image_df["Filter"][index] + " for file " + raw_image_df["Files"][index] +
+                  ". Frame type = " + raw_image_df["Frame"][index])
+
+        # Perform image reduction now that everything is in place (if statement required for missing filter errors)
+        if flat_frame_found and obj_name != 'Unknown':
+            dark_subtracted_flat_fielded_light_frames.append((raw_image_data - dark_frame) / flat_frame)
+
+            # mask the bad pixels in the reduced science images
+            np.putmask(dark_subtracted_flat_fielded_light_frames[-1], masks["mask_" + raw_image_df["Filter"][index]], -999)
+
+    # Finally, return the image reduced product
+    return dark_subtracted_flat_fielded_light_frames
+
+
+def align_images(images, clip_size):
+
+    # Define the template image to allign the rest to
+    # This template image is always the first image of the input list
+    template_image = images[0]
+
+    # Find the (y,x) brightest pixel coordinate
+    ypix, xpix = np.unravel_index(template_image.argmax(), template_image.shape)
+
+    # Based on the (y,x) pixel coordinates further clip the template image using a 100 pixel window
+    template_image_xy_clip = template_image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
+
+    # Define a list to store the aligned images
+    aligned_images = []
+
+    # Interpolate over the list of images to align them
+    for i, image in enumerate(images):
+
+        # If the image is the first one and the template image, add it to the list
+        if i == 0:
+            aligned_images.append(image)
+
+        # Else, align the rest of the images to the template
+        elif i > 0:
+            # Clip the rest of the images using the 100 pixel window around the template's (y,x) brightest pixel coordinate
+            target_image_xy_clip = image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
+
+            # Calculate the target image shift with respect to the template image
+            shift_vals, error, diffphase = phase_cross_correlation(template_image_xy_clip, target_image_xy_clip)
+
+            print(f"Image {i} shift values {shift_vals}")
+
+            # Align the images and add them to the list
+            aligned_image = interp.shift(image, shift_vals)
+            aligned_images.append(aligned_image)
+
+    return aligned_images
+
+
+def create_fits(data, name):
+    hdu = fits.PrimaryHDU(data=data)
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(name + ".fits")
+    
+    return
+
 
 
 # Define the arguments to parse into the script
@@ -222,3 +371,18 @@ dark_times, master_darks = create_master_darks(frame_info_df)
 
 # Create master flats
 flat_filters, master_flats = create_master_flats(frame_info_df, args.data, dark_times, master_darks, master_bias)
+
+# Conduct image reduction process
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
+
+# Aligned the reduced images
+aligned_images = align_images(reduced_images, 0)
+
+
+#temporary: create fits file image code
+'''
+hdu = fits.PrimaryHDU(data=master_flats["master_flat_" + flat_filters[0]])
+hdul = fits.HDUList([hdu])
+hdul.writeto('flat_test.fits')
+'''
+
