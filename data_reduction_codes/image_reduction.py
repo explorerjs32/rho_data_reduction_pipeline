@@ -337,12 +337,61 @@ def align_images(images, clip_size):
     return aligned_images
 
 
-def create_fits(data, name):
-    hdu = fits.PrimaryHDU(data=data)
-    hdul = fits.HDUList([hdu])
-    hdul.writeto(name + ".fits")
-    
-    return
+def create_fits(data_dir, aligned_images, frame_info_df):
+    '''
+    Creates a new directory for reduced images, then populates it with fits files of the aligned reduced images.
+
+    Creates and navigates to the new folder, then gets the list of files from the dataframes and removes all except
+    light object frames. This is consistent with the data_reduction() function to make sure the list of aligned images
+    and dataframes have the same length (and theoretically same order... see warning). The headers are then grabbed
+    for each image and the data and headers are combined into a new fits file that is saved to the new directory.
+    It then returns to the original directory.
+
+    WARNING: I have no way of knowing if the order in the list of aligned images and raw_frame_df_noUnknowns are the same.
+    I think they are but I don't know how to check
+
+    Args:
+        data_dir: args.data, the directory with the data in it
+        aligned_images: the list of aligned images
+        frame_info_df: the dataframe that, most importantly, contains the file and object names
+
+    Returns:
+        True (it completed)
+    '''
+
+    # create new directory
+    print("Creating new directory...")
+    new_dir_path = os.path.join(data_dir, "reduced_images")
+    try:
+        os.mkdir(new_dir_path)
+    except OSError as error:
+        print(error)
+
+    #navigate into the new directory
+    print("Changing directories...")
+    orig_dir = os.getcwd()
+    os.chdir(new_dir_path)
+
+    # grab all the data frame info-> remove "unknowns" to match length from reduced data (no incorrect offset headers)
+    raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
+    raw_image_df_noUnknown = raw_image_df[raw_image_df["Object"] != "Unknown"].reset_index(drop=True);
+    # print(len(raw_image_df_noUnknown))
+    # print(len(aligned_images))
+
+    # get header and create new image
+    print("Creating reduced files")
+    for index, row in raw_image_df_noUnknown.iterrows():
+        #for each frame in the raw, get the header
+        raw_header = fits.getheader(os.path.join(orig_dir, data_dir, row["Files"]))
+        #create the file capsule
+        hdu = fits.PrimaryHDU(data=aligned_images[index], header=raw_header)
+        #create new file name "object.time.reduced.fits"
+        file_name = row["Files"][:-4] + "reduced.fits"
+        #write to the dir
+        hdu.writeto(file_name)
+    print("Finished creating files")
+    os.chdir(orig_dir)
+    return True
 
 
 
@@ -378,11 +427,7 @@ reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_f
 # Aligned the reduced images
 aligned_images = align_images(reduced_images, 0)
 
+#create fits image
+create_fits(args.data, aligned_images, frame_info_df)
 
-#temporary: create fits file image code
-'''
-hdu = fits.PrimaryHDU(data=master_flats["master_flat_" + flat_filters[0]])
-hdul = fits.HDUList([hdu])
-hdul.writeto('flat_test.fits')
-'''
 
