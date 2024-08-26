@@ -2,6 +2,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.io import fits
+from astropy.stats import SigmaClip
+from photutils.background import Background2D, MedianBackground
+from photutils.segmentation import detect_threshold, detect_sources
+from photutils.utils import circular_footprint
 from astropy.visualization import ZScaleInterval, ImageNormalize
 from skimage.registration import *
 from scipy.ndimage import interpolation as interp
@@ -204,6 +208,43 @@ def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, m
 
     return flat_filters, master_flats
 
+def background_subtraction(image):
+    """
+    Subtracts the background from an astronomical image using a 2D background estimation.
+
+    This function estimates the sky background of the input image by assuming a non-uniform
+    background brightness. The background is modeled using a sigma-clipped median estimator, 
+    and sources are masked out before computing the background. The estimated background is 
+    then subtracted from the input image to produce a background-subtracted image.
+
+    Args:
+        image (numpy.ndarray): 2D array representing the astronomical image from which the 
+                               background will be subtracted.
+
+    Returns:
+        numpy.ndarray: The background-subtracted image.
+    """
+
+    # Define the paameters to estimate the the sky background of the image
+    # A non-uniform background brightness is going to be assumed
+    sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+    threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
+    segment_img = detect_sources(image, threshold, npixels=10)
+    footprint = circular_footprint(radius=10)
+    mask = segment_img.make_source_mask(footprint=footprint)
+    box_size = (30, 30)
+    filter_size = (3, 3)
+    bkg_estimator = MedianBackground()
+    
+    # Estimate the 2D background of the image
+    bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
+                       sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
+
+    # Subtract the background from the image reduced image
+    bkg_subtracted_image = image - bkg.background
+        
+    return bkg_subtracted_image
+
 
 def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
     """
@@ -236,7 +277,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
 
     # Initialize the image reduced final product
-    dark_subtracted_flat_fielded_light_frames = []
+    reduced_images = []
 
     # create the flat masks from reduced flats
     def bad_pixel(pixel_data):
@@ -289,16 +330,24 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
         # Perform image reduction now that everything is in place (if statement required for missing filter errors)
         if flat_frame_found and obj_name != 'Unknown':
-            dark_subtracted_flat_fielded_light_frames.append((raw_image_data - dark_frame) / flat_frame)
+            # Reduce the light frames
+            reduced_image = (raw_image_data - dark_frame) / flat_frame
 
-            # mask the bad pixels in the reduced science images
-            np.putmask(dark_subtracted_flat_fielded_light_frames[-1], masks["mask_" + raw_image_df["Filter"][index]], -999)
+            # Subtract the background of the reduced image
+            bkg_subtracted_reduced_image = background_subtraction(reduced_image)
+
+            # mask the bad pixels (MBP) in the background subtracted reduced science images
+            np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_df["Filter"][index]], -999)
+            final_reduced_image = bkg_subtracted_reduced_image
+            
+            # Store the final reduced image into the list
+            reduced_images.append(final_reduced_image)
 
     # Finally, return the image reduced product
-    return dark_subtracted_flat_fielded_light_frames
+    return reduced_images
 
 
-def align_images(images, clip_size):
+def align_images(images):
 
     # Define the template image to allign the rest to
     # This template image is always the first image of the input list
@@ -376,7 +425,7 @@ flat_filters, master_flats = create_master_flats(frame_info_df, args.data, dark_
 reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
 
 # Aligned the reduced images
-aligned_images = align_images(reduced_images, 0)
+aligned_images = align_images(reduced_images)
 
 
 #temporary: create fits file image code
