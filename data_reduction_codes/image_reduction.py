@@ -2,6 +2,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.io import fits
+from astropy.stats import SigmaClip
+from photutils.background import Background2D, MedianBackground
+from photutils.segmentation import detect_threshold, detect_sources
+from photutils.utils import circular_footprint
 from astropy.visualization import ZScaleInterval, ImageNormalize
 from skimage.registration import *
 from scipy.ndimage import interpolation as interp
@@ -10,7 +14,7 @@ import argparse
 
 
 # Define functions here
-def get_frame_info(data_dir, file_list):
+def get_frame_info(data_dir):
     """
     Extracts information from FITS file headers and returns it as pandas DataFrames.
 
@@ -37,6 +41,9 @@ def get_frame_info(data_dir, file_list):
         pandas.DataFrame: An observing log DataFrame grouped by 'Object', 'Frame', 'Filter', and 'Exptime'
                           with a column 'Exposures' indicating the number of exposures for each group.
     """
+
+    # Get the list of fits files in the directory
+    file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))]
 
     # Define the lists to store the data
     exposure_times = []
@@ -204,39 +211,72 @@ def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, m
 
     return flat_filters, master_flats
 
+def background_subtraction(image):
+    """
+    Subtracts the background from an astronomical image using a 2D background estimation.
+
+    This function estimates the sky background of the input image by assuming a non-uniform
+    background brightness. The background is modeled using a sigma-clipped median estimator, 
+    and sources are masked out before computing the background. The estimated background is 
+    then subtracted from the input image to produce a background-subtracted image.
+
+    Args:
+        image (numpy.ndarray): 2D array representing the astronomical image from which the 
+                               background will be subtracted.
+
+    Returns:
+        numpy.ndarray: The background-subtracted image.
+    """
+
+    # Define the paameters to estimate the the sky background of the image
+    # A non-uniform background brightness is going to be assumed
+    sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+    threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
+    segment_img = detect_sources(image, threshold, npixels=10)
+    footprint = circular_footprint(radius=10)
+    mask = segment_img.make_source_mask(footprint=footprint)
+    box_size = (30, 30)
+    filter_size = (3, 3)
+    bkg_estimator = MedianBackground()
+    
+    # Estimate the 2D background of the image
+    bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
+                       sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
+
+    # Subtract the background from the image reduced image
+    bkg_subtracted_image = image - bkg.background
+        
+    return bkg_subtracted_image
+
 
 def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
     """
+    Reduces raw light frame images by subtracting master darks, dividing by master flats, and applying bad pixel masks.
 
-    Isolates the raw images, subtract the master_dark for image reduction, and flat fields the final product
-
-    The dataframes containing the light images are isolated so that only the light values are extracted. Then,
-    iterating through every one of the dataframe rows, the raw_image_data and the raw_image_exp_time. The function
-    then collects information on the closest (if not perfect) match of the dark_frame based on the exposure_times
-    recorded. Then it collects information on the flat_frame required for the given filter of the current image.
-    Lastly, it subtracts the dark_frame and divides that by the flat_frame to provide the
-    dark_subtracted_flat_fielded_light_frames in the end.
+    This function processes light frame images by isolating them from a provided DataFrame, matching them with the 
+    closest available master dark frame based on exposure time, and correcting them with the appropriate master flat 
+    field for the image filter. The processed images are then background-subtracted and bad pixels are masked.
 
     Args:
-        frame_info_df - Pandas DataFrame containing header information for every provided
-        dark_times - Collection of the master_dark exposure times
-        master_darks - Collection of key-value pairs of dark_frame exposure times and dark_frame data
-        flat_filters - Collection of all unique filters in the
-        master_flats
-        master_bias
-        data_dir
+        frame_info_df (pd.DataFrame): DataFrame containing header information for each frame, including file paths, 
+                                      exposure times, and filters.
+        dark_times (list of float): List of exposure times for available master dark frames.
+        master_darks (dict): Dictionary of master dark frames, keyed by exposure time (e.g., "master_dark_10s").
+        flat_filters (list of str): List of unique filters corresponding to available master flat fields.
+        master_flats (dict): Dictionary of master flat frames, keyed by filter name (e.g., "master_flat_V").
+        master_bias (numpy.ndarray): Master bias frame, used if no corresponding dark frame is found.
+        data_dir (str): Directory containing the raw image files to be processed.
 
     Returns:
-         dark_subtracted_flat_fielded_light_frames - A collection image data which has the master_dark reduced and
-            flat fields the final image
-
+        dict: Dictionary of reduced images, keyed by the original file names. Each value is a 2D numpy array representing 
+              the reduced image, with the background subtracted and bad pixels masked.
     """
 
     # Initializes a dataframe containing all the information on raw images
     raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
 
     # Initialize the image reduced final product
-    dark_subtracted_flat_fielded_light_frames = []
+    reduced_images = {}
 
     # create the flat masks from reduced flats
     def bad_pixel(pixel_data):
@@ -289,16 +329,42 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
         # Perform image reduction now that everything is in place (if statement required for missing filter errors)
         if flat_frame_found and obj_name != 'Unknown':
-            dark_subtracted_flat_fielded_light_frames.append((raw_image_data - dark_frame) / flat_frame)
+            # Reduce the light frames
+            reduced_image = (raw_image_data - dark_frame) / flat_frame
 
-            # mask the bad pixels in the reduced science images
-            np.putmask(dark_subtracted_flat_fielded_light_frames[-1], masks["mask_" + raw_image_df["Filter"][index]], -999)
+            # Subtract the background of the reduced image
+            bkg_subtracted_reduced_image = background_subtraction(reduced_image)
+
+            # mask the bad pixels (MBP) in the background subtracted reduced science images
+            np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_df["Filter"][index]], -999)
+            final_reduced_image = bkg_subtracted_reduced_image
+            
+            # Store the final reduced image into the list
+            reduced_images[file] = final_reduced_image
 
     # Finally, return the image reduced product
-    return dark_subtracted_flat_fielded_light_frames
+    return reduced_images
 
 
-def align_images(images, clip_size):
+def align_images(reduced_data):
+    """
+    Aligns a series of reduced astronomical images to a template image using phase cross-correlation.
+
+    This function takes a dictionary of reduced images, identifies the brightest pixel in the first image (used as a template),
+    and then aligns the remaining images to this template. Alignment is performed by determining the shift needed to match
+    the template image, using phase cross-correlation, and then applying this shift to each image.
+
+    Args:
+        reduced_data (dict): Dictionary containing image data, where the keys are file names and the values are 2D numpy arrays 
+                             representing the reduced images.
+
+    Returns:
+        dict: A dictionary of aligned images, where the keys are the original file names and the values are the aligned 2D numpy 
+              arrays. The first image in the list is returned unaltered, as it serves as the template for alignment.
+    """
+    # Split the image data and the file names into lists
+    images = list(reduced_data.values())
+    files = list(reduced_data.keys())
 
     # Define the template image to allign the rest to
     # This template image is always the first image of the input list
@@ -311,14 +377,14 @@ def align_images(images, clip_size):
     template_image_xy_clip = template_image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
 
     # Define a list to store the aligned images
-    aligned_images = []
+    aligned_images = {}
 
     # Interpolate over the list of images to align them
     for i, image in enumerate(images):
 
         # If the image is the first one and the template image, add it to the list
         if i == 0:
-            aligned_images.append(image)
+            aligned_images[files[i]] = image
 
         # Else, align the rest of the images to the template
         elif i > 0:
@@ -332,15 +398,12 @@ def align_images(images, clip_size):
 
             # Align the images and add them to the list
             aligned_image = interp.shift(image, shift_vals)
-            aligned_images.append(aligned_image)
+            aligned_images[files[i]] = aligned_image
 
     return aligned_images
 
-
 def create_fits(data_dir, aligned_images, frame_info_df):
     '''
-    Creates a new directory for reduced images, then populates it with fits files of the aligned reduced images.
-
     Creates and navigates to the new folder, then gets the list of files from the dataframes and removes all except
     light object frames. This is consistent with the data_reduction() function to make sure the list of aligned images
     and dataframes have the same length (and theoretically same order... see warning). The headers are then grabbed
@@ -410,7 +473,7 @@ args = parser.parse_args()
 
 
 # Extract the frame information from the collected data and the observing log
-frame_info_df, observing_log_df = get_frame_info(args.data, os.listdir(args.data))
+frame_info_df, observing_log_df = get_frame_info(args.data)
 
 # Identify master bias frames and combine them
 master_bias = create_master_bias(frame_info_df, args.data)
@@ -425,9 +488,8 @@ flat_filters, master_flats = create_master_flats(frame_info_df, args.data, dark_
 reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
 
 # Aligned the reduced images
-aligned_images = align_images(reduced_images, 0)
+aligned_images = align_images(reduced_images)
 
-#create fits image
-create_fits(args.data, aligned_images, frame_info_df)
-
+# Create fits image
+# create_fits(args.data, aligned_images, frame_info_df)
 
