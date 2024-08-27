@@ -404,8 +404,6 @@ def align_images(reduced_data):
 
 def create_fits(data_dir, aligned_images, frame_info_df):
     '''
-    Creates a new directory for reduced images, then populates it with fits files of the aligned reduced images.
-
     Creates and navigates to the new folder, then gets the list of files from the dataframes and removes all except
     light object frames. This is consistent with the data_reduction() function to make sure the list of aligned images
     and dataframes have the same length (and theoretically same order... see warning). The headers are then grabbed
