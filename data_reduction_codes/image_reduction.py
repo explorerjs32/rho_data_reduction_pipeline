@@ -13,118 +13,83 @@ import os
 import argparse
 
 
-# Define functions here
-def get_frame_info(data_dir):
+def get_frame_info(directories):
     """
-    Extracts information from FITS file headers and returns it as pandas DataFrames.
+    Extracts information from FITS file headers across multiple directories and returns it as pandas DataFrames.
 
-
-    This function reads the FITS files located in the specified directory, extracts relevant
+    This function reads the FITS files located in the specified directories, extracts relevant
     information from the headers (object name, frame type, exposure time, and filter), and
     compiles this information into a pandas DataFrame. Additionally, it generates an observing
     log DataFrame based on the extracted frame information.
 
-
     Parameters:
-    data_dir (str): The directory where the FITS files are stored.
-    file_list (list of str): A list of FITS file names to be processed.
-
+    directories (list of str): List of directories where the FITS files are stored.
 
     Returns:
     tuple:
         pandas.DataFrame: A DataFrame containing the extracted information with the following columns:
                           'Files' - the FITS file names,
+                          'Directory' - the directory where the file is stored,
                           'Object' - the object names from the FITS headers,
                           'Frame' - the frame types from the FITS headers,
                           'Filter' - the filters used for the exposures from the FITS headers,
                           'Exptime' - the exposure times from the FITS headers.
-        pandas.DataFrame: An observing log DataFrame grouped by 'Object', 'Frame', 'Filter', and 'Exptime'
+        pandas.DataFrame: An observing log DataFrame grouped by 'Object', 'Frame', 'Filter', 'Exptime'
                           with a column 'Exposures' indicating the number of exposures for each group.
     """
-
-    # Get the list of fits files in the directory
-    file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))]
 
     # Define the lists to store the data
     exposure_times = []
     filters = []
     frames = []
     objects = []
+    file_list = []
+    directories_list = []
 
-    # Loop through the light frames to get the information out of the fits file header
-    for file in file_list:
-        # Get the object name
-        obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
-        objects.append(obj_name)
+    # Loop through all provided directories
+    for data_dir in directories:
+        # Get the list of fits files in the current directory
+        current_file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))]
 
-        # Get the frame type
-        frame = fits.getheader(os.path.join(data_dir, file))['FRAME']
-        frames.append(frame)
+        # Loop through each file in the directory and extract header info
+        for file in current_file_list:
+            # Get the object name from the FITS header
+            header = fits.getheader(os.path.join(data_dir, file))
+            obj_name = header.get('OBJECT', 'Unknown')
 
-        # Get the exposure time
-        exp_time = fits.getheader(os.path.join(data_dir, file))['EXPTIME']
-        exposure_times.append(exp_time)
+            # If the object name is 'Unknown', skip this file
+            if obj_name == 'Unknown':
+                continue
 
-        # Get the filter used for the exposure
-        filter = fits.getheader(os.path.join(data_dir, file))['FILTER']
-        filters.append(filter)
+            frame = header.get('FRAME', 'Unknown')
+            exp_time = header.get('EXPTIME', 0)
+            filter_ = header.get('FILTER', 'Unknown')
 
-    # Generate a dataframe containing the frame information
-    frame_info_df = pd.DataFrame({'Files': file_list,
-                                  'Object': objects,
-                                  'Frame': frames,
-                                  'Filter': filters,
-                                  'Exptime': exposure_times})
+            # Append the information to the lists
+            objects.append(obj_name)
+            frames.append(frame)
+            exposure_times.append(exp_time)
+            filters.append(filter_)
+            file_list.append(file)
+            directories_list.append(data_dir)
+
+    # Generate a dataframe containing the frame information, including the directory
+    frame_info_df = pd.DataFrame({
+        'Directory': directories_list,
+        'Files': file_list,
+        'Object': objects,
+        'Frame': frames,
+        'Filter': filters,
+        'Exptime': exposure_times
+    })
 
     # Generate the observing log based on the frame information
-    observing_log_df = frame_info_df.groupby(by=['Object', 'Frame', 'Filter', 'Exptime']).size().to_frame(
-        name='Exposures').reset_index()
+    observing_log_df = frame_info_df.groupby(by=['Object', 'Frame', 'Filter', 'Exptime']).size().to_frame(name='Exposures').reset_index()
 
     return frame_info_df, observing_log_df
 
-
-def create_master_darks(frame_info_df):
-    """
-    Creates a list of master darks from the information in the two dataframes.
-
-    First, isolates the dark frames and how many unique exposures there are, then iterates through
-    the list of darks for each exposure time to gather the dark frames for a specific exposure time, which
-    it will median combine into a master dark.
-
-    Args:
-        frame_info_df: the frame information dataframe
-        observing_log_df: the dataframe list of unique frame types
-
-
-    Returns:
-        dark_exposure_times: a list of master dark exposure times (float) that correlate to the master darks
-        master_darks: a dictionary of master darks. Each object in the list is fits data.
-            Key: "master_darks_[0.0]s" where [0.0] is replaced with the exposure time
-            Value: fits data (2D array of pixel counts)
-    """
-    # creating the master darks- one for each exposure time.]
-    # for each unique exposure (entry in observing log that is a dark frame), get that exposure time
-    darks_df = frame_info_df[frame_info_df['Frame'] == 'Dark'].reset_index(drop=True)
-    dark_exposure_times = darks_df['Exptime'].unique()
-
-    # go through the darks of that exposure length to create the master-
-    master_darks = {}
-    for exp in dark_exposure_times:
-        darks_exp = []
-        for index, row in darks_df.iterrows():
-            if (row["Exptime"] == exp):
-                darks_exp.append(fits.getdata(os.path.join(args.data, row['Files'])))
-        master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
-        # Logging master darks created
-        print("Master_dark_" + str(int(exp)) + "s created")
-
-    # return the darks and the times they correlate to.
-    return dark_exposure_times, master_darks
-
-
-def create_master_bias(frame_info_df, data_dir):
+def create_master_bias(frame_info_df):
     '''
-
     Identifies bias frames, compiles and returns them using numpy median method
 
     Using the data extracted from fits by get_frame_info, this function compiles the various
@@ -135,7 +100,6 @@ def create_master_bias(frame_info_df, data_dir):
 
     Args:
         frame_info_df: (Pandas DF list) Collection of frame data at given directory
-        data_dir: (Str) Path leading to the directory desired for analysis
 
     Returns:
         master_bias: (2D array of integers) Median of master bias data used for subsequent
@@ -147,14 +111,58 @@ def create_master_bias(frame_info_df, data_dir):
     biases_df = frame_info_df[frame_info_df["Frame"] == "Bias"].reset_index(drop=True)
 
     # Expanding data within dataframes of label bias into an array
-    biases_data = np.array([fits.getdata(os.path.join(data_dir, file)).astype(float) for file in biases_df["Files"].values])
+    biases_data = np.array([fits.getdata(os.path.join(biases_df.loc[idx, "Directory"], biases_df.loc[idx, "Files"])).astype(float) \
+                            for idx in range(biases_df["Files"].values.size)])
+    
+    print(f"{len(biases_data)} bias frames were found")
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
+
     return master_bias
 
+def create_master_darks(frame_info_df):
+    """
+    Creates a list of master darks from the information in the two dataframes.
 
-def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, master_bias):
+    First, isolates the dark frames and how many unique exposures there are, then iterates through
+    the list of darks for each exposure time to gather the dark frames for a specific exposure time, which
+    it will median combine into a master dark.
+
+    Args:
+        frame_info_df: the frame information dataframe
+
+    Returns:
+        dark_exposure_times: a list of master dark exposure times (float) that correlate to the master darks
+        master_darks: a dictionary of master darks. Each object in the list is fits data.
+            Key: "master_darks_[0.0]s" where [0.0] is replaced with the exposure time
+            Value: fits data (2D array of pixel counts)
+    """
+
+    # Creating the master darks- one for each exposure time.
+    # For each unique exposure (entry in observing log that is a dark frame), get that exposure time
+    darks_df = frame_info_df[frame_info_df['Frame'] == 'Dark'].reset_index(drop=True)
+    dark_exposure_times = darks_df['Exptime'].unique()
+
+    # Go through the darks of that exposure length to create the master-
+    master_darks = {}
+
+    for exp in dark_exposure_times:
+        darks_exp = []
+
+        for index, row in darks_df.iterrows():
+            if (row["Exptime"] == exp):
+                darks_exp.append(fits.getdata(os.path.join(row['Directory'], row['Files'])))
+
+        master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
+
+        # Logging master darks created
+        print("Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found")
+
+    # return the darks and the times they correlate to.
+    return dark_exposure_times, master_darks
+
+def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias):
     """
      Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
@@ -193,25 +201,24 @@ def create_master_flats(frame_info_df, data_dir, darks_exptimes, master_darks, m
 
         for index, row in flats_df.iterrows():
             # Get the exposure time of the flat frame
-            flat_exptime = fits.getheader(os.path.join(data_dir, row['Files']))['EXPTIME']
+            flat_exptime = fits.getheader(os.path.join(row['Directory'], row['Files']))['EXPTIME']
 
-            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))[
-                'FILTER'] == filter_name:
+            if flat_exptime in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 # print(f"subtracting {flat_exptime}s master dark from {row['Files']}")
                 flats_filter.append(
-                    fits.getdata(os.path.join(data_dir, row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
+                    fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
 
-            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(data_dir, row['Files']))[
-                'FILTER'] == filter_name:
+            elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 # print(f"subtracting master bias from {row['Files']}")
-                flats_filter.append(fits.getdata(os.path.join(data_dir, row['Files'])) - master_bias)
+                flats_filter.append(fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_bias)
 
         # Combine the flats and normalize the master flat
         master_flat = np.median(np.array(flats_filter), axis=0)
         normalized_master_flat = master_flat / np.median(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
+
         # Logging Master flat creation
-        print("Master_flat_" + filter_name + " created")
+        print("Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found")
 
     return flat_filters, master_flats
 
@@ -252,7 +259,6 @@ def background_subtraction(image):
         
     return bkg_subtracted_image
 
-
 def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
     """
     Reduces raw light frame images by subtracting master darks, dividing by master flats, and applying bad pixel masks.
@@ -281,7 +287,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     # Initialize the image reduced final product
     reduced_images = {}
 
-    # create the flat masks from reduced flats
+    # Create the flat masks from reduced flats
     def bad_pixel(pixel_data):
         return True if (pixel_data > 2 or pixel_data < 0.5) else False
 
@@ -294,76 +300,86 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     for index in range(len(raw_image_df)):
 
         # Identify current file, file data, and the current exposure time
+        data_dir = raw_image_df['Directory'][index]
         file = raw_image_df["Files"][index]
         raw_image_data = fits.getdata(os.path.join(data_dir, file))
         raw_image_exp_time = raw_image_df["Exptime"][index]
+        raw_image_filter = raw_image_df["Filter"][index]
         obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
 
         # Logging image reduction object name, file, exposure time
         print("Reducing raw light frames for " + obj_name)
         print("Raw file: " + file)
         print("Exposure time: " + str(int(raw_image_exp_time)) + " sec")
+        print("Filter: " + raw_image_filter)
 
         # Identify dark_frame match OR closest match
         dark_frame = []
+
         # If identical match found use that given current dark
         if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
             dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
+
             # Logging master dark subtraction
             print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
+
         # If not, find the closest match by:
         else:
             # Subtracting all the dark exposure times by the raw_image_exposure_time (No negative times allowed)
             temp_times = []
+
             for dark in dark_times:
                 temp_times.append(abs(dark - raw_image_exp_time))
+
             # Sorting the array to find the smallest difference
             temp_times.sort()
+
             # Find the closest dark_exposure_time match using implementation from
             # https://www.geeksforgeeks.org/python-find-closest-number-to-k-in-given-list/
             # Then isolate the dark frame based on the exposure time for future use
             dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
+
             # Logging master dark subtraction
             print("Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s")
 
         # Identify flat_frame match OR provide feedback on missing filters for master_flats
         flat_frame = []
         flat_frame_found = False
+
         # FIXME - Fix filter issue
         if "master_flat_" + raw_image_df["Filter"][index] in master_flats:
             # If filter key found, use the given flat_frame
             flat_frame = master_flats["master_flat_" + raw_image_df["Filter"][index]]
             flat_frame_found = True
+
             # Logging master flat division
             print("Divided normalized_master_flat_" + raw_image_df["Filter"][index])
+
         else:
             # Otherwise, identify the missing filters
             print("Filter Error: missing filter " + raw_image_df["Filter"][index] + " for file " + raw_image_df["Files"][index] +
                   ". Frame type = " + raw_image_df["Frame"][index])
 
         # Perform image reduction now that everything is in place (if statement required for missing filter errors)
-        if flat_frame_found and obj_name != 'Unknown':
-            # Reduce the light frames
-            reduced_image = (raw_image_data - dark_frame) / flat_frame
+        # Reduce the light frames
+        reduced_image = (raw_image_data - dark_frame) / flat_frame
 
-            # Subtract the background of the reduced image
-            bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-
-            # mask the bad pixels (MBP) in the background subtracted reduced science images
-            np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_df["Filter"][index]], -999)
-            final_reduced_image = bkg_subtracted_reduced_image
-            
-            # Store the final reduced image into the list
-            reduced_images[file] = final_reduced_image
-
-        # Logging FIXME - Needs to be updated with new functions
-        print("Removed bad pixels")
+        # Subtract the background of the reduced image
+        bkg_subtracted_reduced_image = background_subtraction(reduced_image)
         print("Subtracted background")
+
+        # Mask the bad pixels (MBP) in the background subtracted reduced science images
+        np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_df["Filter"][index]], -999)
+        final_reduced_image = bkg_subtracted_reduced_image
+        print("Removed bad pixels")
+
+        # Store the final reduced image into the list
+        reduced_images[file] = final_reduced_image        
+        
         print(file + " reduced!\n")
 
     # Finally, return the image reduced product
     return reduced_images
-
 
 def align_images(reduced_data):
     """
@@ -381,6 +397,7 @@ def align_images(reduced_data):
         dict: A dictionary of aligned images, where the keys are the original file names and the values are the aligned 2D numpy 
               arrays. The first image in the list is returned unaltered, as it serves as the template for alignment.
     """
+
     # Split the image data and the file names into lists
     images = list(reduced_data.values())
     files = list(reduced_data.keys())
@@ -421,7 +438,6 @@ def align_images(reduced_data):
 
     return aligned_images
 
-
 def create_fits(data_dir, aligned_images):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
@@ -461,6 +477,7 @@ def create_fits(data_dir, aligned_images):
         hdu.writeto(file_name)
     print("Finished creating files")
     os.chdir(orig_dir)
+
     return True
 
 
@@ -468,18 +485,14 @@ def create_fits(data_dir, aligned_images):
 parser = argparse.ArgumentParser(
     description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
 
-parser.add_argument('-D', '--data', type=str, required=True, help="Directory where the collected data is stored.")
-parser.add_argument('-b', '-bias_frames', type=str, default='', help="Directory where the bias frames are stored.")
-parser.add_argument('-d', '--dark_frames', type=str, default='', help="Directory where the dark frames are stored.")
-parser.add_argument('-f', '--flat_frames', type=str, default='', help="Directory where the flat frames are stored.")
-parser.add_argument('-l', '--light_frames', type=str, default='', help="Directory where the light (science) frames are stored.")
+parser.add_argument('-data', '--data', type=str, nargs='+', required=True, help="Single or multiple directories where the collected data is stored.")
 
 args = parser.parse_args()
 
 # Start of logging
 print()
 print("RETRHO Data Reduction Pipeline Initiated...\n"
-      "Reducing Data from " + args.data + "\n")
+      "Reducing Data from " + "; ".join(args.data) + "\n")
 
 # Extract the frame information from the collected data and the observing log
 frame_info_df, observing_log_df = get_frame_info(args.data)
@@ -491,29 +504,28 @@ print("Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
       "Bias Frames: " + str(frame_info_df["Frame"].str.count("Bias").sum()) + "\n")
 
 # Identify master bias frames and combine them
-print("Creating Master Bias...")
-master_bias = create_master_bias(frame_info_df, args.data)
+print("\nCreating Master Bias...")
+master_bias = create_master_bias(frame_info_df)
 print("Done!\n")
 
-# create the master darks
+# Create the master darks
 print("Creating Master Darks...")
 dark_times, master_darks = create_master_darks(frame_info_df)
 print("Done!\n")
 
 # Create master flats
 print("Creating Master Flats...")
-flat_filters, master_flats = create_master_flats(frame_info_df, args.data, dark_times, master_darks, master_bias)
+flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, master_darks, master_bias)
 print("Done!\n")
 
 # Conduct image reduction process
 reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
 
-# Aligned the reduced images
-print("Saving reduced frames to ") #FIXME - Directory for frames saving
-print("Done reducing image data. See final report on ") #FIXME - Directory for report saving
-aligned_images = align_images(reduced_images)
+# # Aligned the reduced images
+# print("Saving reduced frames to ") #FIXME - Directory for frames saving
+# print("Done reducing image data. See final report on ") #FIXME - Directory for report saving
+# aligned_images = align_images(reduced_images)
 
-
-#create fits images
-create_fits(args.data, aligned_images)
+# # Create fits images
+# create_fits(args.data, aligned_images)
 
