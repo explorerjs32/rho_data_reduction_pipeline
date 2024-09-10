@@ -259,7 +259,7 @@ def background_subtraction(image):
         
     return bkg_subtracted_image
 
-def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, data_dir):
+def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias):
     """
     Reduces raw light frame images by subtracting master darks, dividing by master flats, and applying bad pixel masks.
 
@@ -284,104 +284,129 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     # Initializes a dataframe containing all the information on raw images
     raw_image_df = frame_info_df[frame_info_df["Frame"] == "Light"].reset_index(drop=True)
 
-    # Initialize the image reduced final product
-    reduced_images = {}
+    # Get the unique objects that were observed
+    objects = raw_image_df['Object'].unique()
 
-    # Create the flat masks from reduced flats
-    def bad_pixel(pixel_data):
-        return True if (pixel_data > 2 or pixel_data < 0.5) else False
+    # Define a dictionary to stored the reduced frames per object
+    master_reduced_frames = {}
 
-    bad_pixel_v = np.vectorize(bad_pixel)
-    masks = {}
-    for i in range(len(flat_filters)):
-        masks["mask_" + flat_filters[i]] = bad_pixel_v(master_flats["master_flat_" + flat_filters[i]])
+    # Interpolate over the different objects to reduced the data
+    for object in objects:
 
-    # Iterate through files and create individual reduced data images
-    for index in range(len(raw_image_df)):
+        print(f"Reducing raw light frames for {object}")
 
-        # Identify current file, file data, and the current exposure time
-        data_dir = raw_image_df['Directory'][index]
-        file = raw_image_df["Files"][index]
-        raw_image_data = fits.getdata(os.path.join(data_dir, file))
-        raw_image_exp_time = raw_image_df["Exptime"][index]
-        raw_image_filter = raw_image_df["Filter"][index]
-        obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
+        # Get a dataframe containing only the raw light frames for the given object
+        object_raw_image_df = raw_image_df[raw_image_df['Object'].isin([object])].reset_index(drop=True)
 
-        # Logging image reduction object name, file, exposure time
-        print("Reducing raw light frames for " + obj_name)
-        print("Raw file: " + file)
-        print("Exposure time: " + str(int(raw_image_exp_time)) + " sec")
-        print("Filter: " + raw_image_filter)
+        # Initialize the image reduced final product
+        reduced_images = {}
 
-        # Identify dark_frame match OR closest match
-        dark_frame = []
+        # Create the flat masks from reduced flats
+        def bad_pixel(pixel_data):
+            return True if (pixel_data > 2 or pixel_data < 0.5) else False
 
-        # If identical match found use that given current dark
-        if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
-            dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
+        bad_pixel_v = np.vectorize(bad_pixel)
+        masks = {}
+        for i in range(len(flat_filters)):
+            masks["mask_" + flat_filters[i]] = bad_pixel_v(master_flats["master_flat_" + flat_filters[i]])
 
-            # Logging master dark subtraction
-            print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
+        # Iterate through files and create individual reduced data images
+        for index in range(len(object_raw_image_df)):
 
-        # If not, find the closest match by:
-        else:
-            # Subtracting all the dark exposure times by the raw_image_exposure_time (No negative times allowed)
-            temp_times = []
+            # Identify current file, file data, and the current exposure time
+            data_dir = object_raw_image_df['Directory'][index]
+            file = object_raw_image_df["Files"][index]
+            raw_image_data = fits.getdata(os.path.join(data_dir, file))
+            raw_image_exp_time = object_raw_image_df["Exptime"][index]
+            raw_image_filter = object_raw_image_df["Filter"][index]
+            obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
 
-            for dark in dark_times:
-                temp_times.append(abs(dark - raw_image_exp_time))
+            # Logging image reduction object name, file, exposure time
+            print("Raw file: " + file)
+            print("Exposure time: " + str(int(raw_image_exp_time)) + " sec")
+            print("Filter: " + raw_image_filter)
 
-            # Sorting the array to find the smallest difference
-            temp_times.sort()
+            # Identify dark_frame match OR closest match
+            dark_frame = []
 
-            # Find the closest dark_exposure_time match using implementation from
-            # https://www.geeksforgeeks.org/python-find-closest-number-to-k-in-given-list/
-            # Then isolate the dark frame based on the exposure time for future use
-            dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
+            # If identical match found use that given current dark
+            if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
+                dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
 
-            # Logging master dark subtraction
-            print("Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s")
+            # If not, find the closest match by:
+            else:
+                # Subtracting all the dark exposure times by the raw_image_exposure_time (No negative times allowed)
+                temp_times = []
 
-        # Identify flat_frame match OR provide feedback on missing filters for master_flats
-        flat_frame = []
-        flat_frame_found = False
+                for dark in dark_times:
+                    temp_times.append(abs(dark - raw_image_exp_time))
 
-        # FIXME - Fix filter issue
-        if "master_flat_" + raw_image_df["Filter"][index] in master_flats:
-            # If filter key found, use the given flat_frame
-            flat_frame = master_flats["master_flat_" + raw_image_df["Filter"][index]]
-            flat_frame_found = True
+                # Sorting the array to find the smallest difference
+                temp_times.sort()
 
-            # Logging master flat division
-            print("Divided normalized_master_flat_" + raw_image_df["Filter"][index])
+                # Find the closest dark_exposure_time match using implementation from
+                # https://www.geeksforgeeks.org/python-find-closest-number-to-k-in-given-list/
+                # Then isolate the dark frame based on the exposure time for future use
+                dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
 
-        else:
-            # Otherwise, identify the missing filters
-            print("Filter Error: missing filter " + raw_image_df["Filter"][index] + " for file " + raw_image_df["Files"][index] +
-                  ". Frame type = " + raw_image_df["Frame"][index])
+                # Logging master dark subtraction
+                print("Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s")
 
-        # Perform image reduction now that everything is in place (if statement required for missing filter errors)
-        # Reduce the light frames
-        reduced_image = (raw_image_data - dark_frame) / flat_frame
+            # Identify flat_frame match OR provide feedback on missing filters for master_flats
+            flat_frame = []
+            flat_frame_found = False
 
-        # Subtract the background of the reduced image
-        bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-        print("Subtracted background")
+            # FIXME - Fix filter issue
+            if "master_flat_" + object_raw_image_df["Filter"][index] in master_flats:
+                # If filter key found, use the given flat_frame
+                flat_frame = master_flats["master_flat_" + object_raw_image_df["Filter"][index]]
+                flat_frame_found = True
 
-        # Mask the bad pixels (MBP) in the background subtracted reduced science images
-        np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_df["Filter"][index]], -999)
-        final_reduced_image = bkg_subtracted_reduced_image
-        print("Removed bad pixels")
+                # Logging master flat division
 
-        # Store the final reduced image into the list
-        reduced_images[file] = final_reduced_image        
-        
-        print(file + " reduced!\n")
+            else:
+                # Otherwise, identify the missing filters
+                print("Filter Error: missing filter " + object_raw_image_df["Filter"][index] + " for file " + object_raw_image_df["Files"][index] +
+                    ". Frame type = " + object_raw_image_df["Frame"][index])
+
+            # Perform image reduction now that everything is in place (if statement required for missing filter errors)
+            # Reduce the light frames assuming no corresponding flat frame is found
+            if raw_image_filter not in flat_filters:
+                reduced_image = raw_image_data - dark_frame
+
+                print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
+
+            # Reduced the light frames assuming all corresponding calibration frames were found
+            else:
+                reduced_image = (raw_image_data - dark_frame) / flat_frame
+
+                print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
+                print("Divided normalized_master_flat_" + raw_image_df["Filter"][index])
+
+            # Subtract the background of the reduced image
+            bkg_subtracted_reduced_image = background_subtraction(reduced_image)
+            print("Subtracted background")
+
+            # Mask the bad pixels (MBP) in the background subtracted reduced science images
+            if "mask_" + raw_image_filter not in masks:
+                print(f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking")
+
+            else:
+                np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_filter], -999)
+                final_reduced_image = bkg_subtracted_reduced_image
+                print("Removed bad pixels")
+
+            # Store the final reduced image into the list
+            reduced_images[file] = final_reduced_image        
+            
+            print(file + " reduced!\n")
+
+        master_reduced_frames[object] = reduced_images
 
     # Finally, return the image reduced product
-    return reduced_images
+    return master_reduced_frames
 
-def align_images(reduced_data):
+def align_images(master_reduced_data):
     """
     Aligns a series of reduced astronomical images to a template image using phase cross-correlation.
 
@@ -390,7 +415,7 @@ def align_images(reduced_data):
     the template image, using phase cross-correlation, and then applying this shift to each image.
 
     Args:
-        reduced_data (dict): Dictionary containing image data, where the keys are file names and the values are 2D numpy arrays 
+        master_reduced_data (dict): Dictionary containing image data, where the keys are file names and the values are 2D numpy arrays 
                              representing the reduced images.
 
     Returns:
@@ -398,47 +423,59 @@ def align_images(reduced_data):
               arrays. The first image in the list is returned unaltered, as it serves as the template for alignment.
     """
 
-    # Split the image data and the file names into lists
-    images = list(reduced_data.values())
-    files = list(reduced_data.keys())
+    # Get the object names of the reduced data
+    objects = list(master_reduced_data.keys())
 
-    # Define the template image to allign the rest to
-    # This template image is always the first image of the input list
-    template_image = images[0]
+    # Interpolate over the objects to align the data
+    master_aligned_images = {}
 
-    # Find the (y,x) brightest pixel coordinate
-    ypix, xpix = np.unravel_index(template_image.argmax(), template_image.shape)
+    for object in objects:
+        print(f"Aligning images for {object}")
 
-    # Based on the (y,x) pixel coordinates further clip the template image using a 100 pixel window
-    template_image_xy_clip = template_image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
+        # Get the reduced images per object
+        reduced_data = master_reduced_data[object]
 
-    # Define a list to store the aligned images
-    aligned_images = {}
+        # Split the image data and the file names into lists
+        images = list(reduced_data.values())
+        files = list(reduced_data.keys())
 
-    # Interpolate over the list of images to align them
-    for i, image in enumerate(images):
+        # Define the template image to allign the rest to
+        # This template image is always the first image of the input list
+        template_image = images[0]
 
-        # If the image is the first one and the template image, add it to the list
-        if i == 0:
-            aligned_images[files[i]] = image
+        # Find the (y,x) brightest pixel coordinate
+        ypix, xpix = np.unravel_index(template_image.argmax(), template_image.shape)
 
-        # Else, align the rest of the images to the template
-        elif i > 0:
-            # Clip the rest of the images using the 100 pixel window around the template's (y,x) brightest pixel coordinate
-            target_image_xy_clip = image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
+        # Based on the (y,x) pixel coordinates further clip the template image using a 100 pixel window
+        template_image_xy_clip = template_image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
 
-            # Calculate the target image shift with respect to the template image
-            shift_vals, error, diffphase = phase_cross_correlation(template_image_xy_clip, target_image_xy_clip)
+        # Define a list to store the aligned images
+        aligned_images = {}
 
-            # print(f"Image {i} shift values {shift_vals}")
+        # Interpolate over the list of images to align them
+        for i, image in enumerate(images):
 
-            # Align the images and add them to the list
-            aligned_image = interp.shift(image, shift_vals)
-            aligned_images[files[i]] = aligned_image
+            # If the image is the first one and the template image, add it to the list
+            if i == 0:
+                aligned_images[files[i]] = image
 
-    return aligned_images
+            # Else, align the rest of the images to the template
+            elif i > 0:
+                # Clip the rest of the images using the 100 pixel window around the template's (y,x) brightest pixel coordinate
+                target_image_xy_clip = image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
 
-def create_fits(data_dir, aligned_images):
+                # Calculate the target image shift with respect to the template image
+                shift_vals, error, diffphase = phase_cross_correlation(template_image_xy_clip, target_image_xy_clip)
+
+                # Align the images and add them to the list
+                aligned_image = interp.shift(image, shift_vals)
+                aligned_images[files[i]] = aligned_image
+
+        master_aligned_images[object] = aligned_images
+
+    return master_aligned_images
+
+def create_fits(frame_info_df, master_aligned_images, output_dir):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
     associated with the original raw image. The data for each image  and headers are combined into a new fits file
@@ -452,31 +489,43 @@ def create_fits(data_dir, aligned_images):
         True (it completed)
     '''
 
-    # create new directory
-    print("Creating new directory...")
-    new_dir_path = os.path.join(data_dir, "reduced_images")
-    try:
-        os.mkdir(new_dir_path)
-    except OSError as error:
-        print(error)
+    # Get the object names from the aligned data dictionary
+    objects = list(master_aligned_images.keys())
 
-    #navigate into the new directory
-    print("Changing directories...")
-    orig_dir = os.getcwd()
-    os.chdir(new_dir_path)
+    # Interpolate over the objects to save the aligned frames to the respective directories
+    for object in objects:
+        # Create sub directory to save the data
+        print("Creating new directory...")
+        final_dir = os.path.join(output_dir, object)
 
-    for file in aligned_images:
-        print(file)
-        # for each frame in the raw, get the header
-        raw_header = fits.getheader(os.path.join(orig_dir, data_dir, file))
-        # create the file capsule
-        hdu = fits.PrimaryHDU(data=aligned_images[file], header=raw_header)
-        # create new file name "object.time.reduced.fits"
-        file_name = file[:-4] + "reduced.fits"
-        # write to the dir
-        hdu.writeto(file_name)
-    print("Finished creating files")
-    os.chdir(orig_dir)
+        try:
+            os.mkdir(final_dir)
+        except OSError as error:
+            print(error)
+
+        # Define the aligned images for the respective object and get the file names
+        aligned_images = master_aligned_images[object]
+        file_names = list(aligned_images.keys())
+
+        for file in file_names:
+            # Define the full path to where the respective aligned file is stored
+            file_dir = frame_info_df[frame_info_df['Files'].isin([file])]['Directory'].iloc[0]
+            file_path = os.path.join(file_dir, file)
+            
+            # For each frame in the raw, get the header
+            raw_header = fits.getheader(file_path)
+
+            # Create the file capsule
+            hdu = fits.PrimaryHDU(data=aligned_images[file], header=raw_header)
+
+            # Create new file name "object.time.reduced.fits"
+            file_name = file[:-4] + "reduced.fits"
+
+            # Write to the dir
+            hdu.writeto(os.path.join(final_dir, file_name))
+
+        print("Finished creating files for object", object)
+        print(f"Saving reduced frames to {final_dir}")
 
     return True
 
@@ -486,8 +535,10 @@ parser = argparse.ArgumentParser(
     description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
 
 parser.add_argument('-data', '--data', type=str, nargs='+', required=True, help="Single or multiple directories where the collected data is stored.")
+parser.add_argument('-output', '--output', type=str, default='', help='Output directory to store the reduced frames. This directory MUST BE pre-created.')
 
 args = parser.parse_args()
+
 
 # Start of logging
 print()
@@ -496,7 +547,7 @@ print("RETRHO Data Reduction Pipeline Initiated...\n"
 
 # Extract the frame information from the collected data and the observing log
 frame_info_df, observing_log_df = get_frame_info(args.data)
-
+print(frame_info_df)
 print("Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
       "Light Frames: " + str(frame_info_df["Frame"].str.count("Light").sum()) + "\n"
       "Dark Frames: " + str(frame_info_df["Frame"].str.count("Dark").sum()) + "\n"
@@ -519,13 +570,27 @@ flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, mast
 print("Done!\n")
 
 # Conduct image reduction process
-reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, args.data)
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias)
 
-# # Aligned the reduced images
-# print("Saving reduced frames to ") #FIXME - Directory for frames saving
-# print("Done reducing image data. See final report on ") #FIXME - Directory for report saving
-# aligned_images = align_images(reduced_images)
+# Aligned the reduced images
+aligned_images = align_images(reduced_images)
 
-# # Create fits images
-# create_fits(args.data, aligned_images)
+# Define the output directory to store the reduced frames
+if args.output != '':
+    output_dir = args.output
+
+else:
+    # Make the first sorted directory parsed the default directory to store the reduced frames
+    output_dir = os.path.join(sorted(args.data)[0], "reduced_images")
+
+    # Create the new directory
+    try:
+        os.mkdir(output_dir)
+    except OSError as error:
+        print(error)
+
+# Create fits images
+create_fits(frame_info_df, aligned_images, output_dir)
+print("Done reducing image data. See final report on ") #FIXME - Directory for report saving
+
 
