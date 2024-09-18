@@ -88,7 +88,7 @@ def get_frame_info(directories):
 
     return frame_info_df, observing_log_df
 
-def create_master_bias(frame_info_df):
+def create_master_bias(frame_info_df, log):
     '''
     Identifies bias frames, compiles and returns them using numpy median method
 
@@ -100,6 +100,7 @@ def create_master_bias(frame_info_df):
 
     Args:
         frame_info_df: (Pandas DF list) Collection of frame data at given directory
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         master_bias: (2D array of integers) Median of master bias data used for subsequent
@@ -114,14 +115,14 @@ def create_master_bias(frame_info_df):
     biases_data = np.array([fits.getdata(os.path.join(biases_df.loc[idx, "Directory"], biases_df.loc[idx, "Files"])).astype(float) \
                             for idx in range(biases_df["Files"].values.size)])
     
-    print(f"{len(biases_data)} bias frames were found")
+    log += [f"{len(biases_data)} bias frames were found\n"]
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
 
     return master_bias
 
-def create_master_darks(frame_info_df):
+def create_master_darks(frame_info_df, log):
     """
     Creates a list of master darks from the information in the two dataframes.
 
@@ -131,6 +132,7 @@ def create_master_darks(frame_info_df):
 
     Args:
         frame_info_df: the frame information dataframe
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         dark_exposure_times: a list of master dark exposure times (float) that correlate to the master darks
@@ -157,12 +159,12 @@ def create_master_darks(frame_info_df):
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
         # Logging master darks created
-        print("Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found")
+        log += ["Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks
 
-def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias):
+def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, log):
     """
      Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
@@ -180,6 +182,7 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         master_darks (dict): Dictionary of master darks. Keys are strings formatted as "master_dark_[exptime]s" where
             [exptime] is the exposure time, and values are 2D numpy arrays representing the master dark frames.
         master_bias (numpy.ndarray): 2D numpy array representing the master bias frame.
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         tuple: A tuple containing:
@@ -218,7 +221,7 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
         # Logging Master flat creation
-        print("Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found")
+        log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
 
     return flat_filters, master_flats
 
@@ -259,7 +262,7 @@ def background_subtraction(image):
         
     return bkg_subtracted_image
 
-def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias):
+def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log):
     """
     Reduces raw light frame images by subtracting master darks, dividing by master flats, and applying bad pixel masks.
 
@@ -275,6 +278,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
         master_flats - Dictionary of master flats
         master_bias - Master bias produced in previous operations
         data_dir - File directory
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         dict: Dictionary of reduced images, keyed by the original file names. Each value is a 2D numpy array representing 
@@ -293,7 +297,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     # Interpolate over the different objects to reduced the data
     for object in objects:
 
-        print(f"Reducing raw light frames for {object}")
+        log += [f"Reducing raw light frames for {object}\n\n"]
 
         # Get a dataframe containing only the raw light frames for the given object
         object_raw_image_df = raw_image_df[raw_image_df['Object'].isin([object])].reset_index(drop=True)
@@ -322,9 +326,9 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             obj_name = fits.getheader(os.path.join(data_dir, file))['OBJECT']
 
             # Logging image reduction object name, file, exposure time
-            print("Raw file: " + file)
-            print("Exposure time: " + str(int(raw_image_exp_time)) + " sec")
-            print("Filter: " + raw_image_filter)
+            log += ["Raw file: " + file + "\n"]
+            log += ["Exposure time: " + str(int(raw_image_exp_time)) + " sec\n"]
+            log += ["Filter: " + raw_image_filter + "\n"]
 
             # Identify dark_frame match OR closest match
             dark_frame = []
@@ -350,7 +354,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 dark_frame = master_darks["master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s"]
 
                 # Logging master dark subtraction
-                print("Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s")
+                log += ["Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s\n"]
 
             # Identify flat_frame match OR provide feedback on missing filters for master_flats
             flat_frame = []
@@ -374,39 +378,38 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             if raw_image_filter not in flat_filters:
                 reduced_image = raw_image_data - dark_frame
 
-                print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
+                log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
 
             # Reduced the light frames assuming all corresponding calibration frames were found
             else:
                 reduced_image = (raw_image_data - dark_frame) / flat_frame
 
-                print("Subtracted Master_dark_" + str(raw_image_exp_time) + "s")
-                print("Divided normalized_master_flat_" + raw_image_df["Filter"][index])
+                log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
+                log += ["Divided normalized_master_flat_" + raw_image_df["Filter"][index] + "\n"]
 
             # Subtract the background of the reduced image
             bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-            print("Subtracted background")
-
+            log += ["Subtracted background"]
             # Mask the bad pixels (MBP) in the background subtracted reduced science images
             if "mask_" + raw_image_filter not in masks:
-                print(f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking")
+                log += [f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking\n"]
 
             else:
                 np.putmask(bkg_subtracted_reduced_image, masks["mask_" + raw_image_filter], -999)
                 final_reduced_image = bkg_subtracted_reduced_image
-                print("Removed bad pixels")
+                log += ["Removed bad pixels\n"]
 
             # Store the final reduced image into the list
             reduced_images[file] = final_reduced_image        
             
-            print(file + " reduced!\n")
+            log += [file + " reduced!\n\n"]
 
         master_reduced_frames[object] = reduced_images
 
     # Finally, return the image reduced product
     return master_reduced_frames
 
-def align_images(master_reduced_data):
+def align_images(master_reduced_data, log):
     """
     Aligns a series of reduced astronomical images to a template image using phase cross-correlation.
 
@@ -417,6 +420,7 @@ def align_images(master_reduced_data):
     Args:
         master_reduced_data (dict): Dictionary containing image data, where the keys are file names and the values are 2D numpy arrays 
                              representing the reduced images.
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         dict: A dictionary of aligned images, where the keys are the original file names and the values are the aligned 2D numpy 
@@ -430,7 +434,7 @@ def align_images(master_reduced_data):
     master_aligned_images = {}
 
     for object in objects:
-        print(f"Aligning images for {object}")
+        log += [f"Aligning images for {object}\n\n"]
 
         # Get the reduced images per object
         reduced_data = master_reduced_data[object]
@@ -475,7 +479,7 @@ def align_images(master_reduced_data):
 
     return master_aligned_images
 
-def create_fits(frame_info_df, master_aligned_images, output_dir):
+def create_fits(frame_info_df, master_aligned_images, output_dir, log):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
     associated with the original raw image. The data for each image  and headers are combined into a new fits file
@@ -484,6 +488,7 @@ def create_fits(frame_info_df, master_aligned_images, output_dir):
     Args:
         data_dir: args.data, the directory with the data in it
         aligned_images: the list of aligned images
+        log: List of strings containing logging to be added to the log txt file
 
     Returns:
         True (it completed)
@@ -495,7 +500,7 @@ def create_fits(frame_info_df, master_aligned_images, output_dir):
     # Interpolate over the objects to save the aligned frames to the respective directories
     for object in objects:
         # Create sub directory to save the data
-        print("Creating new directory...")
+        log += ["Creating new directory...\n"]
         final_dir = os.path.join(output_dir, object)
 
         try:
@@ -524,8 +529,8 @@ def create_fits(frame_info_df, master_aligned_images, output_dir):
             # Write to the dir
             hdu.writeto(os.path.join(final_dir, file_name))
 
-        print("Finished creating files for object", object)
-        print(f"Saving reduced frames to {final_dir}")
+        log += ["Finished creating files for object " + object + "\n"]
+        log += [f"Saving reduced frames to {final_dir}"]
 
     return True
 
@@ -539,41 +544,38 @@ parser.add_argument('-output', '--output', type=str, default='', help='Output di
 
 args = parser.parse_args()
 
-
 # Start of logging
-print()
-print("RETRHO Data Reduction Pipeline Initiated...\n"
-      "Reducing Data from " + "; ".join(args.data) + "\n")
+log = []
+log += ["RETRHO Data Reduction Pipeline Initiated...\n"
+        "Reducing Data from " + "; ".join(args.data) + "\n\n"]
 
-# Extract the frame information from the collected data and the observing log
 frame_info_df, observing_log_df = get_frame_info(args.data)
-print(frame_info_df)
-print("Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
-      "Light Frames: " + str(frame_info_df["Frame"].str.count("Light").sum()) + "\n"
-      "Dark Frames: " + str(frame_info_df["Frame"].str.count("Dark").sum()) + "\n"
-      "Flat Frames: " + str(frame_info_df["Frame"].str.count("Flat").sum()) + "\n"
-      "Bias Frames: " + str(frame_info_df["Frame"].str.count("Bias").sum()) + "\n")
+log += ["Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
+        "Light Frames: " + str(frame_info_df["Frame"].str.count("Light").sum()) + "\n"
+        "Dark Frames: " + str(frame_info_df["Frame"].str.count("Dark").sum()) + "\n"
+        "Flat Frames: " + str(frame_info_df["Frame"].str.count("Flat").sum()) + "\n"
+        "Bias Frames: " + str(frame_info_df["Frame"].str.count("Bias").sum()) + "\n\n"]
 
 # Identify master bias frames and combine them
-print("\nCreating Master Bias...")
-master_bias = create_master_bias(frame_info_df)
-print("Done!\n")
+log += ["Creating Master Bias...\n"]
+master_bias = create_master_bias(frame_info_df, log)
+log += ["Done!\n\n"]
 
 # Create the master darks
-print("Creating Master Darks...")
-dark_times, master_darks = create_master_darks(frame_info_df)
-print("Done!\n")
+log += ["Creating Master Darks...\n"]
+dark_times, master_darks = create_master_darks(frame_info_df, log)
+log += ["Done!\n\n"]
 
 # Create master flats
-print("Creating Master Flats...")
-flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, master_darks, master_bias)
-print("Done!\n")
+log += ["Creating Master Flats...\n"]
+flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
+log += ["Done!\n\n"]
 
 # Conduct image reduction process
-reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias)
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log)
 
 # Aligned the reduced images
-aligned_images = align_images(reduced_images)
+aligned_images = align_images(reduced_images, log)
 
 # Define the output directory to store the reduced frames
 if args.output != '':
@@ -590,7 +592,12 @@ else:
         print(error)
 
 # Create fits images
-create_fits(frame_info_df, aligned_images, output_dir)
-print("Done reducing image data. See final report on ") #FIXME - Directory for report saving
+create_fits(frame_info_df, aligned_images, output_dir, log)
+print("Done reducing image data. See final report on " + output_dir)
 
+# Transferring log list of strings to the txt file
+logfile = open(output_dir + "/data_reduction_report.txt", "a")
+for line in log:
+    logfile.write(line)
+logfile.close()
 
