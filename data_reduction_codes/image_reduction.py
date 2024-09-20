@@ -6,11 +6,11 @@ from astropy.stats import SigmaClip
 from photutils.background import Background2D, MedianBackground
 from photutils.segmentation import detect_threshold, detect_sources
 from photutils.utils import circular_footprint
-from astropy.visualization import ZScaleInterval, ImageNormalize
 from skimage.registration import *
-from scipy.ndimage import interpolation as interp
+from scipy.ndimage import shift
 import os
 import argparse
+from tqdm.auto import tqdm
 
 
 def get_frame_info(directories):
@@ -315,7 +315,8 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             masks["mask_" + flat_filters[i]] = bad_pixel_v(master_flats["master_flat_" + flat_filters[i]])
 
         # Iterate through files and create individual reduced data images
-        for index in range(len(object_raw_image_df)):
+        for index in tqdm(range(len(object_raw_image_df)), desc=f"Reducing raw light frames for {object}", unit=' frames',
+                          dynamic_ncols=True):
 
             # Identify current file, file data, and the current exposure time
             data_dir = object_raw_image_df['Directory'][index]
@@ -389,7 +390,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
             # Subtract the background of the reduced image
             bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-            log += ["Subtracted background"]
+            log += ["Subtracted background\n"]
             # Mask the bad pixels (MBP) in the background subtracted reduced science images
             if "mask_" + raw_image_filter not in masks:
                 log += [f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking\n"]
@@ -457,7 +458,8 @@ def align_images(master_reduced_data, log):
         aligned_images = {}
 
         # Interpolate over the list of images to align them
-        for i, image in enumerate(images):
+        for i, image in tqdm(enumerate(images), desc=f"Aligning images for {object}", unit=' frames',
+                            total=len(images), dynamic_ncols=True):
 
             # If the image is the first one and the template image, add it to the list
             if i == 0:
@@ -472,7 +474,7 @@ def align_images(master_reduced_data, log):
                 shift_vals, error, diffphase = phase_cross_correlation(template_image_xy_clip, target_image_xy_clip)
 
                 # Align the images and add them to the list
-                aligned_image = interp.shift(image, shift_vals)
+                aligned_image = shift(image, shift_vals)
                 aligned_images[files[i]] = aligned_image
 
         master_aligned_images[object] = aligned_images
@@ -512,7 +514,8 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
         aligned_images = master_aligned_images[object]
         file_names = list(aligned_images.keys())
 
-        for file in file_names:
+        for file in tqdm(file_names, desc=f"Saving final images for {object}", unit=' frames',
+                            dynamic_ncols=True):
             # Define the full path to where the respective aligned file is stored
             file_dir = frame_info_df[frame_info_df['Files'].isin([file])]['Directory'].iloc[0]
             file_path = os.path.join(file_dir, file)
@@ -544,6 +547,8 @@ parser.add_argument('-output', '--output', type=str, default='', help='Output di
 
 args = parser.parse_args()
 
+print(f"RETRHO Data Reduction Pipeline Initiated...\nReducing Data from " + "; ".join(args.data) + "\n")
+
 # Start of logging
 log = []
 log += ["RETRHO Data Reduction Pipeline Initiated...\n"
@@ -571,11 +576,15 @@ log += ["Creating Master Flats...\n"]
 flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
 log += ["Done!\n\n"]
 
+print("Done creating Calibration frames\n")
+
 # Conduct image reduction process
 reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log)
+print("Done reducing the raw data\n")
 
 # Aligned the reduced images
 aligned_images = align_images(reduced_images, log)
+print("Done aligning images\n")
 
 # Define the output directory to store the reduced frames
 if args.output != '':
@@ -593,7 +602,7 @@ else:
 
 # Create fits images
 create_fits(frame_info_df, aligned_images, output_dir, log)
-print("Done reducing image data. See final report on " + output_dir)
+print("Done with the data reduction. See final report on " + output_dir)
 
 # Transferring log list of strings to the txt file
 logfile = open(output_dir + "/data_reduction_report.txt", "a")
