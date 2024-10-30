@@ -3,6 +3,8 @@ import pandas as pd
 import os
 from astropy.io import fits
 import argparse
+from photutils.detection import DAOStarFinder
+from photutils import aperture_photometry, CircularAperture, CircularAnnulus, datasets, find_peaks
 
 
 # Define the functions

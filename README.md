@@ -21,6 +21,6 @@ To use the data reduction pipeline, you need to specify the directory where your
 
 For example, when running from the command line, in the rho_data_reduction_pipeline folder:
 
-python data_reduction_codes/image_reduction.py -D data/2024-04-15/
+python data_reduction_codes/image_reduction.py -data data/2024-04-15/
 
 NOTE: you must add the "/" at the end of the directory specifying where the data is located, or the program will not be able to navigate inside that folder 
