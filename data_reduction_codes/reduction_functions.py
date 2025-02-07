@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.stats import SigmaClip
 from astropy.io.fits.verify import VerifyError
+import astroalign as aa
+from astroalign import MaxIterError
 from photutils.background import Background2D, MedianBackground
 from photutils.segmentation import detect_threshold, detect_sources
 from photutils.utils import circular_footprint
@@ -514,14 +516,11 @@ def align_images(master_reduced_data, log):
         # This template image is always the first image of the input list
         template_image = images[0]
 
-        # Find the (y,x) brightest pixel coordinate
-        ypix, xpix = np.unravel_index(template_image.argmax(), template_image.shape)
-
-        # Based on the (y,x) pixel coordinates further clip the template image using a 100 pixel window
-        template_image_xy_clip = template_image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
-
         # Define a list to store the aligned images
         aligned_images = {}
+
+        # Define a list to store the file names with alignment issues
+        bad_aligned_images = []
 
         # Interpolate over the list of images to align them
         for i, image in tqdm(enumerate(images), desc=f"Aligning images for {object}", unit=' frames',
@@ -533,16 +532,26 @@ def align_images(master_reduced_data, log):
 
             # Else, align the rest of the images to the template
             elif i > 0:
-                # Clip the rest of the images using the 100 pixel window around the template's (y,x) brightest pixel coordinate
-                target_image_xy_clip = image[ypix - 50:ypix + 50, xpix - 50:xpix + 50]
+                try:
+                    # Find the transformation between the images
+                    transf, (source_list, target_list) = aa.find_transform(image, template_image, max_control_points=10)
+                    
+                    # Apply the transformation to align image2 with image1
+                    aligned_image, footprint = aa.apply_transform(transf, source=image, target=template_image)
+                    aligned_images[files[i]] = aligned_image
 
-                # Calculate the target image shift with respect to the template image
-                # shift_vals, error, diffphase = phase_cross_correlation(template_image_xy_clip, target_image_xy_clip)
-                shift_vals, error, diffphase = phase_cross_correlation(template_image, image)
+                except(MaxIterError):
+                    aligned_images[files[i]] = image
+                    bad_aligned_images.append(files[i])
+                    pass
+        
+        # Add to the log the images with alignment issues
+        log += ["The following images were not aligned:"]
 
-                # Align the images and add them to the list
-                aligned_image = shift(image, shift_vals)
-                aligned_images[files[i]] = aligned_image
+        for bad_file in bad_aligned_images:
+            log += [f"\n\t{bad_file[:-5]}_reduced.fits"]
+
+        bad_aligned_images = []
 
         master_aligned_images[object] = aligned_images
 
@@ -569,7 +578,7 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
     # Interpolate over the objects to save the aligned frames to the respective directories
     for object in objects:
         # Create sub directory to save the data
-        log += ["Creating new directory...\n"]
+        log += ["\nCreating new directory...\n"]
         final_dir = os.path.join(output_dir, object)
 
         try:
