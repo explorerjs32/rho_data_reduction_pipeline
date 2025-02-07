@@ -405,6 +405,8 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             # If identical match found use that given current dark
             if "master_dark_" + str(raw_image_exp_time) + "s" in master_darks:
                 dark_frame = master_darks["master_dark_" + str(raw_image_exp_time) + "s"]
+                log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
+
 
             # If not, find the closest match by:
             else:
@@ -446,14 +448,13 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             # Reduce the light frames assuming no corresponding flat frame is found
             if raw_image_filter not in flat_filters:
                 reduced_image = raw_image_data - dark_frame
-
-                log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
+                log += ["Flat Division skipped. No Master flat for filter: " + raw_image_df["Filter"][index] + "\n"]
 
             # Reduced the light frames assuming all corresponding calibration frames were found
             else:
                 reduced_image = (raw_image_data - dark_frame) / flat_frame
 
-                log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
+                # log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
                 log += ["Divided normalized_master_flat_" + raw_image_df["Filter"][index] + "\n"]
 
             # Subtract the background of the reduced image
