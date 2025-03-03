@@ -187,9 +187,7 @@ def create_master_bias(frame_info_df, log):
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
-
-    #Using biases_data to estimate read noise
-    noise=np.std(biases_data) 
+    noise=np.std(biases_data, axis = 0) 
     master_bias_noise=np.median(noise, axis=0)
    
     return master_bias, master_bias_noise
