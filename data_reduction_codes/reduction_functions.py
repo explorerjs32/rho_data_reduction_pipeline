@@ -187,10 +187,12 @@ def create_master_bias(frame_info_df, log):
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
+    noise=np.std(biases_data, axis = 0) 
+    master_bias_noise=np.median(noise, axis=0)
+   
+    return master_bias, master_bias_noise
 
-    return master_bias
-
-def create_master_darks(frame_info_df, log):
+def create_master_darks(frame_info_df, master_bias_noise, log):
     """
     Creates a list of master darks from the information in the two dataframes.
 
@@ -226,11 +228,22 @@ def create_master_darks(frame_info_df, log):
 
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
+        #Removing noise from dark frames to get the dark current
+        darks_exp_array = np.array(darks_exp)
+        darks_list = darks_exp_array - master_bias_noise
+
+        #Taking median twice from the bias subtracted darks
+        debiased_master_dark = np.median(darks_list, axis=0)
+        dark_current= np.median(debiased_master_dark)/dark_exposure_times
+
         # Logging master darks created
         log += ["Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
+        #Creating dictionary for dark current
+        uncertainties_dark_current = {'dark current': dark_current}
+
     # return the darks and the times they correlate to.
-    return dark_exposure_times, master_darks
+    return dark_exposure_times, master_darks, uncertainties_dark_current
 
 def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, log):
     """
@@ -288,10 +301,16 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         normalized_master_flat = master_flat / np.median(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
+        #Calculating uncertainty of flats
+        flats_uncertainty = np.std(normalized_master_flat)
+
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
 
-    return flat_filters, master_flats
+        #Creating a dictionary for the Flats uncertainty
+        flats_uncertainty_dict = {'Flats uncertainty': flats_uncertainty}
+
+    return flat_filters, master_flats, flats_uncertainty_dict
 
 def background_subtraction(image):
     """
