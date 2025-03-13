@@ -42,17 +42,17 @@ log += ["Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
 
 # Identify master bias frames and combine them
 log += ["Creating Master Bias...\n"]
-master_bias = create_master_bias(frame_info_df, log)
+master_bias, master_bias_noise = create_master_bias(frame_info_df, log)
 log += ["Done!\n\n"]
 
 # Create the master darks
 log += ["Creating Master Darks...\n"]
-dark_times, master_darks = create_master_darks(frame_info_df, log)
+dark_times, master_darks, uncertainties_dark_current = create_master_darks(frame_info_df, master_bias_noise, log)
 log += ["Done!\n\n"]
 
 # Create master flats
 log += ["Creating Master Flats...\n"]
-flat_filters, master_flats = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
+flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
 log += ["Done!\n\n"]
 
 print("Done creating Calibration frames\n")
@@ -79,3 +79,7 @@ for line in log:
     logfile.write(line)
 logfile.close()
 
+#Saving data of normalized flat, bias noise, and dark current
+uncertainties = [['Dark Current:', uncertainties_dark_current], ['Flats Uncertainty:', flats_uncertainty_dict], ['Master Bias Noise:', master_bias_noise]]
+df = pd.DataFrame(uncertainties)
+df.to_csv(os.path.join(output_dir, 'Uncertainties.csv'), index=False)
