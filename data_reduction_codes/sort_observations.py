@@ -133,38 +133,6 @@ def organize_frames(data_dir, frame_info_df):
     # Look for the calibration frames of each object's light frame
     for object_name in light_frames_per_object.keys():
 
-        # Get the exposure times and filters of each object
-        exp_times = frame_info_df[frame_info_df['Files'].isin(light_frames_per_object[object_name])]['Exptime'].unique()
-        filters = frame_info_df[frame_info_df['Files'].isin(light_frames_per_object[object_name])]['Filter'].unique()
-
-        # Find the corresponding dark frames
-        darks_dir = os.path.join(data_dir, 'Dark')
-
-        for exptime in exp_times:
-            dark_frames_files = frame_info_df[((frame_info_df['Frame'] == 'Dark') & (frame_info_df['Exptime'] == exptime))]['Files']
-
-            if dark_frames_files.size == 0:
-                warnings.warn(f"Missing Dark frames for object {object_name} with exposure time of {exptime} seconds.")
-
-            else:
-                for file in dark_frames_files:
-                    shutil.copy2(os.path.join(data_dir, file), os.path.join(darks_dir, file))
-                    # print(f"{file} is a dark frame for object {object_name}")
-
-        # Find the corresponding flat frames
-        flats_dir = os.path.join(data_dir, 'Flat')
-
-        for filt in filters:
-            flat_frames_files = frame_info_df[((frame_info_df['Frame'] == 'Flat') & (frame_info_df['Filter'] == filt))]['Files']
-
-            if flat_frames_files.size == 0:
-                warnings.warn(f"Missing Flat frames for object {object_name} with filter {filt}")
-
-            else:
-                for file in flat_frames_files:
-                    shutil.copy2(os.path.join(data_dir, file), os.path.join(flats_dir, file))
-                    # print(f"{file} is a flat frame for object {object_name}")  
-
         # Clasify the bias frames
         bias_dir = os.path.join(data_dir, 'Bias')
         bias_frames_files = frame_info_df[frame_info_df['Frame'] == 'Bias']['Files']
@@ -175,7 +143,48 @@ def organize_frames(data_dir, frame_info_df):
         else:
             for file in bias_frames_files:
                 shutil.copy2(os.path.join(data_dir, file), os.path.join(bias_dir, file))
-                # print(f"{file} is a flat frame for object {object_name}")                      
+                # print(f"{file} is a flat frame for object {object_name}")   
+
+        # Get the filters of each object
+        # filters = frame_info_df[frame_info_df['Files'].isin(light_frames_per_object[object_name])]['Filter'].unique()
+        filters = frame_info_df[frame_info_df['Frame'] == 'Flat']['Filter'].unique()
+
+        # Find the corresponding flat frames
+        flats_dir = os.path.join(data_dir, 'Flat')
+        flat_frames_out = []
+
+        for filt in filters:
+            flat_frames_files = frame_info_df[((frame_info_df['Frame'] == 'Flat') & (frame_info_df['Filter'] == filt))]['Files']
+
+            if flat_frames_files.size == 0:
+                warnings.warn(f"Missing Flat frames for object {object_name} with filter {filt}")
+
+            else:
+                for file in flat_frames_files:
+                    shutil.copy2(os.path.join(data_dir, file), os.path.join(flats_dir, file))
+                    flat_frames_out.append(file)
+                    # print(f"{file} is a flat frame for object {object_name}")             
+
+        # Find the corresponding light and flat frames
+        # exp_times = frame_info_df[(frame_info_df['Files'].isin(light_frames_per_object[object_name])) & \
+        #                           (frame_info_df['Files'].isin(flat_frames_out))]['Exptime'].unique()
+        exp_times = frame_info_df[(frame_info_df['Files'].isin(flat_frames_out))]['Exptime'].unique().tolist()
+        exp_times += frame_info_df[(frame_info_df['Files'].isin(light_frames_per_object[object_name]))]['Exptime'].unique().tolist()
+
+        # Find the corresponding dark frames
+        darks_dir = os.path.join(data_dir, 'Dark')
+
+        for exptime in exp_times:
+            dark_frames_files = frame_info_df[((frame_info_df['Frame'] == 'Dark') & (frame_info_df['Exptime'] == exptime))]['Files']
+            
+            if dark_frames_files.size == 0:
+                warnings.warn(f"Missing Dark frames for object {object_name} with exposure time of {exptime} seconds.")
+
+            else:
+                for file in dark_frames_files:
+                    shutil.copy2(os.path.join(data_dir, file), os.path.join(darks_dir, file))
+                    # print(f"{file} is a dark frame for object {object_name}")
+                     
 
     return
 

@@ -9,7 +9,6 @@ from astroalign import MaxIterError
 from photutils.background import Background2D, MedianBackground
 from photutils.segmentation import detect_threshold, detect_sources
 from photutils.utils import circular_footprint
-from skimage.registration import *
 from scipy.ndimage import shift
 import os
 import argparse
