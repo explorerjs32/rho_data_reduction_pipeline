@@ -259,27 +259,14 @@ class PSFPhotometry:
         
         self.fig.canvas.draw_idle()
 
-    def on_mouse_click(self, event):
+    def clear_contour(self):
         """
-        Handle mouse click events. Right click removes the selection and contour.
+        Clear only the PSF contour from the image.
         """
-        if event.button == 3:  # Right click
-            # Remove the contour if it exists
-            if self.current_contour is not None:
-                for collection in self.current_contour.collections:
-                    collection.remove()
-                self.current_contour = None
-                
-            # Remove the current selection
-            if self.rect_selector.active:
-                self.rect_selector.set_active(False)
-                self.rect_selector.set_active(True)
-            
-            # Remove the PSF results for the current frame if they exist
-            if self.current_index in self.psf_results:
-                del self.psf_results[self.current_index]
-            
-            self.fig.canvas.draw_idle()
+        if self.current_contour is not None:
+            for coll in self.current_contour.collections:
+                coll.remove()
+            self.current_contour = None
         
     def next_image(self, event):
         """
@@ -287,6 +274,7 @@ class PSFPhotometry:
         """
         # if the current index is less than the total number of frames, move to the next image
         if self.current_index < len(self.frame_info) - 1:
+            self.clear_contour()
             self.current_index += 1
             self.display_image()
             self.update_button_status()
@@ -300,6 +288,7 @@ class PSFPhotometry:
         """
         # If the current index is greater than 0, move to the previous image
         if self.current_index > 0:
+            self.clear_contour()
             self.current_index -= 1
             self.display_image()
             self.update_button_status()
