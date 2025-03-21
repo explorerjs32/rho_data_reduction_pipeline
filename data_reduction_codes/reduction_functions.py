@@ -187,7 +187,7 @@ def create_master_bias(frame_info_df, log):
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
     noise=np.std(biases_data, axis = 0) 
-    master_bias_noise=np.median(noise, axis=0)
+    master_bias_noise=np.median(noise)
    
     return master_bias, master_bias_noise
 
@@ -217,6 +217,7 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
 
     # Go through the darks of that exposure length to create the master-
     master_darks = {}
+    dark_uncertainties = {}
 
     for exp in dark_exposure_times:
         darks_exp = []
@@ -230,19 +231,18 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
         #Removing noise from dark frames to get the dark current
         darks_exp_array = np.array(darks_exp)
         darks_list = darks_exp_array - master_bias_noise
-
         #Taking median twice from the bias subtracted darks
         debiased_master_dark = np.median(darks_list, axis=0)
-        dark_current= np.median(debiased_master_dark)/dark_exposure_times
+
+        # Updating dictionary entry for dark current
+        uncertainty = np.median(debiased_master_dark)/exp
+        dark_uncertainties["Dark_Current_" + str(int(exp)) + "s"] = uncertainty
 
         # Logging master darks created
         log += ["Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
-        #Creating dictionary for dark current
-        uncertainties_dark_current = {'dark current': dark_current}
-
     # return the darks and the times they correlate to.
-    return dark_exposure_times, master_darks, uncertainties_dark_current
+    return dark_exposure_times, master_darks, dark_uncertainties
 
 def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, log):
     """
@@ -278,6 +278,7 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
 
     # Create the master flats
     master_flats = {}
+    flat_uncertainties = {}
 
     for filter_name in flat_filters:
         flats_filter = []
@@ -301,15 +302,13 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
         #Calculating uncertainty of flats
-        flats_uncertainty = np.std(normalized_master_flat)
-
+        uncertainty = np.std(normalized_master_flat)
+        # Updating flat_uncertainties dictionary
+        flat_uncertainties["Flat_" + filter_name + "_Noise"] = uncertainty
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
 
-        #Creating a dictionary for the Flats uncertainty
-        flats_uncertainty_dict = {'Flats uncertainty': flats_uncertainty}
-
-    return flat_filters, master_flats, flats_uncertainty_dict
+    return flat_filters, master_flats, flat_uncertainties
 
 def background_subtraction(image):
     """

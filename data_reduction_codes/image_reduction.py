@@ -79,6 +79,10 @@ for line in log:
 logfile.close()
 
 #Saving data of normalized flat, bias noise, and dark current
-uncertainties = [['Dark Current:', uncertainties_dark_current], ['Flats Uncertainty:', flats_uncertainty_dict], ['Master Bias Noise:', master_bias_noise]]
+uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
+uncertainties.extend(uncertainties_dark_current.items())  # Dark current rows
+uncertainties.extend(flats_uncertainty_dict.items())  # Flat noise rows
+
 df = pd.DataFrame(uncertainties)
-df.to_csv(os.path.join(output_dir, 'Uncertainties.csv'), index=False)
+csv_path = os.path.join(output_dir, 'Uncertainties.csv')
+df.to_csv(csv_path, index=False, header=False, sep=" ", quoting=3)  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
