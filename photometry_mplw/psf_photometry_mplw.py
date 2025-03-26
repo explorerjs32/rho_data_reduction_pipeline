@@ -78,6 +78,7 @@ class PSFPhotometry:
         self.psf_results = {}
         self.rect_selector = None
         self.current_contour = None
+        self.contours_dict = {}
         self.display_image()
         self.create_widgets()
         self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
@@ -197,6 +198,22 @@ class PSFPhotometry:
         else:
             pass
 
+    def display_psf_info(self):
+        """
+        Display PSF information for previously analyzed images.
+        """
+        if self.current_index in self.psf_results:
+            df = self.psf_results[self.current_index]
+            # Iterate through all peaks in the dataframe
+            for i in range(len(df)):
+                x = df['x_peak'].iloc[i]
+                y = df['y_peak'].iloc[i]
+                width = height = 20  # You can adjust this size
+                self.display_psf(int(x-width/2), int(y-height/2), width, height)
+
+        
+        self.fig.canvas.draw_idle()
+
     def perform_psf_photometry(self, x, y, width, height):
         """
           Perform PSF photometry on the selected region.
@@ -255,18 +272,30 @@ class PSFPhotometry:
         mean, median, std = sigma_clipped_stats(sub_image, sigma=3.0, maxiters=5)
         
         # Create a contour plot of the PSF
-        self.current_contour = self.ax.contour(sub_image, levels=[mean + 3*std], colors='red', linewidths=1, alpha=0.75, extent=(x, x+width, y, y+height))
-        
+        contour = self.ax.contour(sub_image, levels=[mean + 3*std], colors='red', linewidths=1, alpha=0.75, extent=(x, x+width, y, y+height))
+
+        # Initialize list for current image if not exists
+        if self.current_index not in self.contours_dict:
+            self.contours_dict[self.current_index] = []
+
+        # Add new contour to the list for current image
+        self.contours_dict[self.current_index].append(contour)
+        self.current_contour = contour
+    
         self.fig.canvas.draw_idle()
+
+        print(self.current_index,self.contours_dict)
 
     def clear_contour(self):
         """
-        Clear only the PSF contour from the image.
+        Clear all PSF contours from the current image.
         """
-        if self.current_contour is not None:
-            for coll in self.current_contour.collections:
-                coll.remove()
-            self.current_contour = None
+        if self.current_index in self.contours_dict:
+            for contour in self.contours_dict[self.current_index]:
+                for coll in contour.collections:
+                    coll.remove()
+            self.contours_dict[self.current_index] = []
+        self.current_contour = None
         
     def next_image(self, event):
         """
