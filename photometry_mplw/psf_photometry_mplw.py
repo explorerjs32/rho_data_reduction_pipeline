@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 import matplotlib.widgets as widgets
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
@@ -75,9 +77,11 @@ class PSFPhotometry:
         self.fig, self.ax = plt.subplots(figsize=(8, 8))
         self.text_box = None
         self.text_frame_num = None
-        self.psf_results = {}
         self.rect_selector = None
         self.current_contour = None
+        self.current_level = None
+        self.current_vertices = None
+        self.temp_contours = []
         self.contours_dict = {}
         self.display_image()
         self.create_widgets()
@@ -87,9 +91,12 @@ class PSFPhotometry:
         """
         Displays the current image and the frame information.
         """
+        # Clear the axis first
+        self.ax.clear()
+        
         # Read the current FITS file
         file_path = os.path.join(self.frame_info['Directory'][self.current_index],
-                                 self.frame_info['File'][self.current_index])
+                                self.frame_info['File'][self.current_index])
         
         self.image_data = fits.getdata(file_path)
         
@@ -97,32 +104,39 @@ class PSFPhotometry:
         image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
         self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
         
-        # Remove the previous text box
-        if self.text_box:
-            self.text_box.remove()
-
-        if self.text_frame_num:
-            self.text_frame_num.remove()
-            
         # Create the text box with rounded edges
         textstr = (f"File: {self.frame_info['File'][self.current_index]}\n"
-                   f"Object: {self.frame_info['Object'][self.current_index]}\n"
-                   f"Filter: {self.frame_info['Filter'][self.current_index]}\n"
-                   f"Exposure Time: {self.frame_info['Exptime'][self.current_index]} s")
+                f"Object: {self.frame_info['Object'][self.current_index]}\n"
+                f"Filter: {self.frame_info['Filter'][self.current_index]}\n"
+                f"Exposure Time: {self.frame_info['Exptime'][self.current_index]} s")
 
         props = dict(boxstyle='round', facecolor='white', alpha=0.5)
         self.text_box = self.ax.text(0.02, 1.2, textstr, transform=self.ax.transAxes, fontsize=12,
-                                     verticalalignment='top', bbox=props)
+                                    verticalalignment='top', bbox=props)
 
-        # Add the frame number out of the total number of frames
-        self.text_frame_num = self.ax.text(0.8, 1.05, f"Frame {self.current_index + 1}/{len(self.frame_info)}", transform=self.ax.transAxes,
-                                           fontsize=12, verticalalignment='top')
+        # Add the frame number
+        self.text_frame_num = self.ax.text(0.8, 1.05, f"Frame {self.current_index + 1}/{len(self.frame_info)}", 
+                                        transform=self.ax.transAxes,
+                                        fontsize=12, verticalalignment='top')
         
         self.ax.axis('off')
         
-        # Display PSF information if available
-        if self.current_index in self.psf_results:
-            self.display_psf_info()
+        # Display saved contours if they exist for this image
+        if self.current_index in self.contours_dict:
+            for contour_info in self.contours_dict[self.current_index]:
+                x, y, width, height = contour_info['coords']
+                vertices = contour_info['vertices']
+                
+                # Ensure the region is within image bounds
+                if (x >= 0 and y >= 0 and 
+                    x + width <= self.image_data.shape[1] and 
+                    y + height <= self.image_data.shape[0]):
+                    
+                    # Create path from vertices and add as a patch
+                    path = Path(vertices)
+                    patch = PathPatch(path, facecolor='none', edgecolor='red', 
+                                    linewidth=1, alpha=0.75)
+                    self.ax.add_patch(patch)
         
         self.fig.canvas.draw()
 
@@ -168,18 +182,21 @@ class PSFPhotometry:
         # Define the buttons to navigate between images
         ax_prev = plt.axes([0.125, 0.15, 0.1, 0.05])
         ax_next = plt.axes([0.25, 0.15, 0.1, 0.05])
+        ax_add_star = plt.axes([0.375, 0.15, 0.1, 0.05])
         
         self.button_prev = widgets.Button(ax_prev, 'Previous')
         self.button_next = widgets.Button(ax_next, 'Next')
+        self.button_add_star = widgets.Button(ax_add_star, 'Add Star')
+
         self.button_prev.on_clicked(self.prev_image)
         self.button_next.on_clicked(self.next_image)
+        self.button_add_star.on_clicked(self.add_star)
         
         # Create RectangleSelector for region selection
         self.rect_selector = widgets.RectangleSelector(self.ax, self.on_region_select, useblit=True,
                                                        minspanx=5, minspany=5,
                                                        spancoords='pixels', interactive=True)
         
-
     def on_region_select(self, eclick, erelease):
         """
         Callback function for the RectangleSelector widget.
@@ -193,137 +210,113 @@ class PSFPhotometry:
         
         # Ensure the selected region is within the bounds of the image
         if width > 0 and height > 0 and x1 >= 0 and y1 >= 0 and x2 <= self.image_data.shape[1] and y2 <= self.image_data.shape[0]:
-            # Perform PSF photometry
-            self.perform_psf_photometry(x1, y1, width, height)
-        else:
-            pass
-
-    def display_psf_info(self):
-        """
-        Display PSF information for previously analyzed images.
-        """
-        if self.current_index in self.psf_results:
-            df = self.psf_results[self.current_index]
-            # Iterate through all peaks in the dataframe
-            for i in range(len(df)):
-                x = df['x_peak'].iloc[i]
-                y = df['y_peak'].iloc[i]
-                width = height = 20  # You can adjust this size
-                self.display_psf(int(x-width/2), int(y-height/2), width, height)
-
-        
-        self.fig.canvas.draw_idle()
-
-    def perform_psf_photometry(self, x, y, width, height):
-        """
-          Perform PSF photometry on the selected region.
-          """
-        # Create a dataframe to store the results
-        df = pd.DataFrame(columns=['File', 'Object', 'Exptime', 'Filter', 'Star', 'X', 'Y', 'Flux', 'Error'])
-        
-        # Fill in the file, object, exptime, and filter information
-        df['File'] = [self.frame_info['File'][self.current_index]]
-        df['Object'] = [self.frame_info['Object'][self.current_index]]
-        df['Exptime'] = [self.frame_info['Exptime'][self.current_index]]
-        df['Filter'] = [self.frame_info['Filter'][self.current_index]]
-        
-        # Extract the selected region
-        sub_image = self.image_data[y:y+height, x:x+width]
-        
-        # Perform PSF photometry on the selected region
-        mean, median, std = sigma_clipped_stats(sub_image, sigma=3.0, maxiters=5)
-        
-        # Find the peaks in the selected region
-        peaks_tbl = find_peaks(sub_image, mean + 5 * std, box_size=5).to_pandas().sort_values(by='peak_value', ascending=False).reset_index(drop=True)
-        
-        # Create a cutout region of the star
-        star_cutout = sub_image[int(peaks_tbl['y_peak'].iloc[0]) - height:int(peaks_tbl['y_peak'].iloc[0]) + height,
-                                int(peaks_tbl['x_peak'].iloc[0]) - width:int(peaks_tbl['x_peak'].iloc[0]) + width]
-        
-        # Calculate stats for the star cutout
-        star_mean, star_median, star_std = sigma_clipped_stats(star_cutout, sigma=3.0, maxiters=5)
-        
-        # Calculate the flux and error
-        flux = star_cutout[star_cutout > 3.*star_std].sum()
-        flux_err = np.sqrt(flux)
-        
-        # Fill in the PSF photometry results
-        df['Star'] = [1]
-        df['x_peak'] = [x + peaks_tbl['x_peak'].iloc[0]]
-        df['y_peak'] = [y + peaks_tbl['y_peak'].iloc[0]]
-        df['Flux'] = [flux]
-        df['Error'] = [flux_err]
-        
-        # Store the dataframe in the dictionary
-        self.psf_results[self.current_index] = df
-        
-        # Display PSF information on the image
-        self.display_psf(x, y, width, height)
+            self.display_psf(x1, y1, width, height)
 
     def display_psf(self, x, y, width, height):
         """
-        Display the PSF photometry information on the image as a contour.
+        Display temporary PSF contour on the current image while maintaining saved contours.
         """
+        # Clear only temporary contours
+        for contour in self.temp_contours:
+            for coll in contour.collections:
+                coll.remove()
+        self.temp_contours = []
         
         # Extract the selected region
         sub_image = self.image_data[y:y+height, x:x+width]
         
         # Calculate stats for the selected region
         mean, median, std = sigma_clipped_stats(sub_image, sigma=3.0, maxiters=5)
+        contour_level = mean + 3*std
         
         # Create a contour plot of the PSF
-        contour = self.ax.contour(sub_image, levels=[mean + 3*std], colors='red', linewidths=1, alpha=0.75, extent=(x, x+width, y, y+height))
-
-        # Initialize list for current image if not exists
-        if self.current_index not in self.contours_dict:
-            self.contours_dict[self.current_index] = []
-
-        # Add new contour to the list for current image
-        self.contours_dict[self.current_index].append(contour)
+        contour = self.ax.contour(sub_image, levels=[contour_level], colors='red', 
+                                linewidths=1, alpha=0.75, extent=(x, x+width, y, y+height))
+        
+        # Get the contour path vertices
+        path = contour.collections[0].get_paths()[0]
+        vertices = path.vertices
+        
+        # Store temporary contour and its data
+        self.temp_contours.append(contour)
         self.current_contour = contour
-    
+        self.current_level = contour_level
+        self.current_vertices = vertices
+        
+        # Redisplay saved contours for current image
+        if self.current_index in self.contours_dict:
+            for contour_info in self.contours_dict[self.current_index]:
+                x_saved, y_saved, width_saved, height_saved = contour_info['coords']
+                vertices_saved = contour_info['vertices']
+                
+                # Create path from saved vertices and add as a patch
+                path = Path(vertices_saved)
+                patch = PathPatch(path, facecolor='none', edgecolor='red', 
+                                linewidth=1, alpha=0.75)
+                self.ax.add_patch(patch)
+        
         self.fig.canvas.draw_idle()
 
-        print(self.current_index,self.contours_dict)
-
-    def clear_contour(self):
+    def clear_temp_contours(self):
         """
-        Clear all PSF contours from the current image.
+        Clear temporary contours from the current image.
         """
-        if self.current_index in self.contours_dict:
-            for contour in self.contours_dict[self.current_index]:
-                for coll in contour.collections:
-                    coll.remove()
-            self.contours_dict[self.current_index] = []
+        for contour in self.temp_contours:
+            for coll in contour.collections:
+                coll.remove()
+        self.temp_contours = []
         self.current_contour = None
         
     def next_image(self, event):
         """
         Move to the next image in the list.
         """
-        # if the current index is less than the total number of frames, move to the next image
         if self.current_index < len(self.frame_info) - 1:
-            self.clear_contour()
+            self.clear_temp_contours()  # Clear temporary contours
             self.current_index += 1
             self.display_image()
             self.update_button_status()
-            self.ax.set_xlim(0, self.image_data.shape[1]) 
-            self.ax.set_ylim(0, self.image_data.shape[0]) 
+            self.ax.set_xlim(0, self.image_data.shape[1])
+            self.ax.set_ylim(0, self.image_data.shape[0])
             self.fig.canvas.draw_idle()
 
     def prev_image(self, event):
         """
         Move to the previous image in the list.
         """
-        # If the current index is greater than 0, move to the previous image
         if self.current_index > 0:
-            self.clear_contour()
+            self.clear_temp_contours()  # Clear temporary contours
             self.current_index -= 1
             self.display_image()
             self.update_button_status()
             self.ax.set_xlim(0, self.image_data.shape[1])
             self.ax.set_ylim(0, self.image_data.shape[0])
             self.fig.canvas.draw_idle()
+
+    def add_star(self, event):
+        """
+        Save the current contour information to the contours dictionary.
+        """
+        if self.current_contour is not None and self.temp_contours:
+            # Get the coordinates from the current contour's extent
+            extent = self.current_contour.collections[0].get_paths()[0].get_extents()
+            x = int(extent.x0)
+            y = int(extent.y0)
+            width = int(extent.x1 - extent.x0)
+            height = int(extent.y1 - extent.y0)
+            
+            # Initialize the list for this image if it doesn't exist
+            if self.current_index not in self.contours_dict:
+                self.contours_dict[self.current_index] = []
+            
+            # Save the contour information including vertices
+            contour_info = {
+                'coords': (x, y, width, height),
+                'level': self.current_level,
+                'vertices': self.current_vertices
+            }
+            
+            self.contours_dict[self.current_index].append(contour_info)
 
     def update_button_status(self):
         """
