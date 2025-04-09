@@ -83,6 +83,7 @@ class PSFPhotometry:
         self.current_vertices = None
         self.temp_contours = []
         self.contours_dict = {}
+        self.photometry_dict = {}
         self.display_image()
         self.create_widgets()
         self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
@@ -121,9 +122,10 @@ class PSFPhotometry:
         
         self.ax.axis('off')
         
-        # Display saved contours if they exist for this image
+        # Display saved contours and labels if they exist for this image
+        current_file = self.frame_info['File'][self.current_index]
         if self.current_index in self.contours_dict:
-            for contour_info in self.contours_dict[self.current_index]:
+            for i, contour_info in enumerate(self.contours_dict[self.current_index], 1):
                 x, y, width, height = contour_info['coords']
                 vertices = contour_info['vertices']
                 
@@ -137,6 +139,13 @@ class PSFPhotometry:
                     patch = PathPatch(path, facecolor='none', edgecolor='red', 
                                     linewidth=1, alpha=0.75)
                     self.ax.add_patch(patch)
+                    
+                    # Add star label if photometry data exists
+                    if current_file in self.photometry_dict and i in self.photometry_dict[current_file]:
+                        measurements = self.photometry_dict[current_file][i]
+                        self.ax.text(measurements['xpeak'] - 25, measurements['ypeak'] + 25,
+                                f'Star {i}', color='red', fontsize=10,
+                                ha='center', va='bottom')
         
         self.fig.canvas.draw()
 
@@ -183,14 +192,17 @@ class PSFPhotometry:
         ax_prev = plt.axes([0.125, 0.15, 0.1, 0.05])
         ax_next = plt.axes([0.25, 0.15, 0.1, 0.05])
         ax_add_star = plt.axes([0.375, 0.15, 0.1, 0.05])
-        
+        ax_perform_phot = plt.axes([0.5, 0.15, 0.15, 0.05])
+
         self.button_prev = widgets.Button(ax_prev, 'Previous')
         self.button_next = widgets.Button(ax_next, 'Next')
         self.button_add_star = widgets.Button(ax_add_star, 'Add Star')
+        self.button_perform_phot = widgets.Button(ax_perform_phot, 'PSF Photometry')
 
         self.button_prev.on_clicked(self.prev_image)
         self.button_next.on_clicked(self.next_image)
         self.button_add_star.on_clicked(self.add_star)
+        self.button_perform_phot.on_clicked(self.perform_photometry)
         
         # Create RectangleSelector for region selection
         self.rect_selector = widgets.RectangleSelector(self.ax, self.on_region_select, useblit=True,
@@ -266,12 +278,129 @@ class PSFPhotometry:
                 coll.remove()
         self.temp_contours = []
         self.current_contour = None
+
+    def add_star(self, event):
+        """
+        Save the current contour information and initial photometry measurements.
+        """
+        if self.current_contour is not None and self.temp_contours:
+            # Get the coordinates from the current contour's extent
+            extent = self.current_contour.collections[0].get_paths()[0].get_extents()
+            x = int(extent.x0)
+            y = int(extent.y0)
+            width = int(extent.x1 - extent.x0)
+            height = int(extent.y1 - extent.y0)
+            
+            # Get current file name
+            current_file = self.frame_info['File'][self.current_index]
+            
+            # Initialize the dictionaries if they don't exist
+            if self.current_index not in self.contours_dict:
+                self.contours_dict[self.current_index] = []
+            if current_file not in self.photometry_dict:
+                self.photometry_dict[current_file] = {}
+            
+            # Get the star number (1-based indexing)
+            star_number = len(self.contours_dict[self.current_index]) + 1
+            
+            # Extract the region and find the peak
+            region = self.image_data[y:y+height, x:x+width]
+            max_counts = np.max(region)
+            peak_y, peak_x = np.unravel_index(np.argmax(region), region.shape)
+            
+            # Calculate absolute peak position
+            abs_peak_x = x + peak_x
+            abs_peak_y = y + peak_y
+            
+            # Save contour information
+            contour_info = {
+                'coords': (x, y, width, height),
+                'level': self.current_level,
+                'vertices': self.current_vertices
+            }
+            self.contours_dict[self.current_index].append(contour_info)
+            
+            # Save initial photometry measurements
+            self.photometry_dict[current_file][star_number] = {
+                'xpeak': abs_peak_x,
+                'ypeak': abs_peak_y,
+                'peak_counts': max_counts
+            }
+            
+            # Add star label
+            self.ax.text(abs_peak_x - 25, abs_peak_y + 25, f'Star {star_number}', 
+                        color='red', fontsize=10, ha='center', va='bottom')
+            self.fig.canvas.draw_idle()
+
+    def perform_photometry(self, event):
+        """
+        Perform PSF photometry on all marked stars in the current image.
+        """
+        current_file = self.frame_info['File'][self.current_index]
         
+        if current_file in self.photometry_dict:
+            for star_number, star_data in self.photometry_dict[current_file].items():
+                # Get the contour information for this star
+                contour_info = self.contours_dict[self.current_index][star_number - 1]
+                x, y, width, height = contour_info['coords']
+                
+                # Extract the region
+                region = self.image_data[y:y+height, x:x+width]
+                
+                # Calculate the sum flux (total counts within the contour)
+                mask = Path(contour_info['vertices']).contains_points(
+                    [(i, j) for i in range(x, x+width) for j in range(y, y+height)]
+                ).reshape(height, width)
+                
+                sum_flux = np.sum(region[mask])
+                sum_flux_err = np.sqrt(sum_flux)  # Assuming Poisson statistics
+                
+                # Update the photometry dictionary with flux measurements
+                self.photometry_dict[current_file][star_number].update({
+                    'sum_flux': sum_flux,
+                    'sum_flux_err': sum_flux_err
+                })
+        
+    def create_composite_dataframe(self):
+        """
+        Create a pandas DataFrame containing photometry measurements from all processed images.
+        """
+        data = []
+        for file_name in self.photometry_dict.keys():
+            # Get corresponding frame info
+            frame_info_row = self.frame_info[self.frame_info['File'] == file_name].iloc[0]
+            
+            for star_number, measurements in self.photometry_dict[file_name].items():
+                measurements_copy = measurements.copy()
+                measurements_copy['star_number'] = star_number
+                measurements_copy['file'] = file_name
+                # Add additional information from frame_info
+                measurements_copy['Date-Obs'] = frame_info_row['Date-Obs']
+                measurements_copy['Exptime'] = frame_info_row['Exptime']
+                measurements_copy['Filter'] = frame_info_row['Filter']
+                data.append(measurements_copy)
+        
+        if data:
+            df = pd.DataFrame(data)
+            # Reorder columns to put file, date, filter, exptime, and star_number first
+            cols = ['file', 'Date-Obs', 'Filter', 'Exptime', 'star_number'] + \
+                [col for col in df.columns if col not in ['file', 'Date-Obs', 'Filter', 'Exptime', 'star_number']]
+            df = df[cols]
+            return df
+        return None
+
     def next_image(self, event):
         """
         Move to the next image in the list.
         """
         if self.current_index < len(self.frame_info) - 1:
+            # Display composite photometry data including all processed images
+            composite_df = self.create_composite_dataframe()
+            if composite_df is not None:
+                print("\nComposite Photometry Measurements:")
+                print(composite_df.to_string(index=False))
+                print("\n" + "="*50 + "\n")  # Separator line
+            
             self.clear_temp_contours()  # Clear temporary contours
             self.current_index += 1
             self.display_image()
@@ -292,31 +421,6 @@ class PSFPhotometry:
             self.ax.set_xlim(0, self.image_data.shape[1])
             self.ax.set_ylim(0, self.image_data.shape[0])
             self.fig.canvas.draw_idle()
-
-    def add_star(self, event):
-        """
-        Save the current contour information to the contours dictionary.
-        """
-        if self.current_contour is not None and self.temp_contours:
-            # Get the coordinates from the current contour's extent
-            extent = self.current_contour.collections[0].get_paths()[0].get_extents()
-            x = int(extent.x0)
-            y = int(extent.y0)
-            width = int(extent.x1 - extent.x0)
-            height = int(extent.y1 - extent.y0)
-            
-            # Initialize the list for this image if it doesn't exist
-            if self.current_index not in self.contours_dict:
-                self.contours_dict[self.current_index] = []
-            
-            # Save the contour information including vertices
-            contour_info = {
-                'coords': (x, y, width, height),
-                'level': self.current_level,
-                'vertices': self.current_vertices
-            }
-            
-            self.contours_dict[self.current_index].append(contour_info)
 
     def update_button_status(self):
         """
