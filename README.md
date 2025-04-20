@@ -12,7 +12,7 @@ Welcome to the RETRHO data reduction pipeline repository! Here, you will find th
     * Create normalize master flat frames
     * Reduce light frames using the corresponding master dark and normalized master flat
     * Remove bad/hot pixels
-    * Subtract sky background
+    * Subtract sky background (*optional feature*)
     * Align the reduced images
 * Generates a detailed data reduction log and outlines all the image reduction steps for every input file.
 
@@ -68,15 +68,20 @@ After the raw images have been classified into their different sub-directories. 
 
 Similarly to the `sort_observations.py` script, you will be required to parse in different in order to get the expected outcome. These arguments are:
 
-* `--light`: Directory containing the raw light frames from an object (e.g. `<raw_data_dir>/Light/<obj_name>`)
-* `--dark`: Directory containing the dark frames (e.g. `<raw_data_dir>/Dark/`)
-* `--flat`: Dierctory containing the flat frames (e.g. `<raw_data_dir>/Flat/`)
-* `--bias`: Directory containing the bias frames (e.g. `<raw_data_dir>/Bias/`)
-* `--output`: Directory where you want the the reduced files to be stored as well as the auxiliary files created by the data reduction script.
+* `-l`: Directory containing the raw light frames from an object (e.g. `<raw_data_dir>/Light/<obj_name>`)
+* `-d`: Directory containing the dark frames (e.g. `<raw_data_dir>/Dark/`)
+* `-f`: Dierctory containing the flat frames (e.g. `<raw_data_dir>/Flat/`)
+* `-b`: Directory containing the bias frames (e.g. `<raw_data_dir>/Bias/`)
+* `-B`: *(optional boolean)* `True` or `False` argument to perform sky background subtraction. Default value is set to `True`
+* `-o`: Directory where you want the the reduced files to be stored as well as the auxiliary files created by the data reduction script.
 
 So, when running this code it should look like the following:
 
-`python image_reduction.py --light <raw_data_dir>/Light/<obj_name> --dark <raw_data_dir>/Dark/ --flat <raw_data_dir>/Flat/ --bias <raw_data_dir>/Bias/ --output <output_dir>`
+`python image_reduction.py -l <raw_data_dir>/Light/<obj_name> -d <raw_data_dir>/Dark/ -f <raw_data_dir>/Flat/ -b <raw_data_dir>/Bias/ -o <output_dir>`
+
+By running this code using the above example, the data reduction pipeline will perform sky background subtraction since that is the default setting. To skip this step, you can run the code as follows:
+
+`python image_reduction.py -l <raw_data_dir>/Light/<obj_name> -d <raw_data_dir>/Dark/ -f <raw_data_dir>/Flat/ -b <raw_data_dir>/Bias/ -B False -o <output_dir>`
 
 The output of this script will be the following:
 
@@ -85,11 +90,13 @@ The output of this script will be the following:
     * A file named `data_reduction_report.txt` containing a detailed process of the data reduction steps for each frame individually (i.e. what settings were used to collect the individual raw light frames, and what callibration frames were used to reduce them).
     * A file named `Uncertainties.csv` containing different instrumental noise uncertainties from the used callibration frames, which will be later used during the photometric calculations.
 
-you can also run this script by parsing in light frames for more than one object, or raw files from different nights. For instance, if you observed two objects during night one, and you collected callibration frames across two different nights, then you can run the script as follows:
+You can also run this script by parsing in light frames for more than one object, or raw files from different nights. For instance, if you observed two objects during night one, and you collected callibration frames across two different nights, then you can run the script as follows:
 
-`python image_reduction.py --light <raw_data_dir_1>/Light/<obj_name_1> <raw_data_dir_1>/Light/<obj_name_2> --dark <raw_data_dir_1>/Dark/ <raw_data_dir_2>/Dark/ --flat <raw_data_dir_1>/Flat/ <raw_data_dir_2>/Flat/ --bias <raw_data_dir_1>/Bias/ --output <output_dir>`
+`python image_reduction.py -l <raw_data_dir_1>/Light/<obj_name_1> <raw_data_dir_1>/Light/<obj_name_2> -d <raw_data_dir_1>/Dark/ <raw_data_dir_2>/Dark/ -f <raw_data_dir_1>/Flat/ <raw_data_dir_2>/Flat/ -b <raw_data_dir_1>/Bias/ -o <output_dir>`
 
-**Note:** If you want to reduce individual objects separatelly by running the script several times, it is recommended to select different output directories for each run, as the output files will be over-writen each time.
+**Note 1:** If you want to reduce individual objects separatelly by running the script several times, it is recommended to select different output directories for each run, as the output files will be over-writen each time. 
+
+**Note 2:** If you want to perform background subtraction for one object and not for the other(s), it is recommended that you run this pipeline separately for each object.
 
 ## Future Implementations
 The RETRHO data reduction team is currently working on developing different interative tools to do photometric calculations or generate color images from the reduced frames. 
