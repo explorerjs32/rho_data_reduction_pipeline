@@ -239,7 +239,7 @@ class PSFPhotometry:
         
         # Calculate stats for the selected region
         mean, median, std = sigma_clipped_stats(sub_image, sigma=3.0, maxiters=5)
-        contour_level = mean + 3*std
+        contour_level = mean + 10*std
         
         # Create a contour plot of the PSF
         contour = self.ax.contour(sub_image, levels=[contour_level], colors='red', 
