@@ -15,6 +15,25 @@ import argparse
 from tqdm.auto import tqdm
 
 
+def str2bool(v):
+    """
+    Converts a string to a boolean value.
+    Args:
+        v (str): The string to convert.
+    Returns:
+        bool: The converted boolean value.
+    Raises:
+        argparse.ArgumentTypeError: If the string cannot be converted to a boolean.
+    """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def get_frame_info(light_dirs, dark_dirs, flat_dirs, bias_dirs):
     """
     Extracts information from FITS file headers across multiple directories and returns it as pandas DataFrames.
@@ -347,7 +366,7 @@ def background_subtraction(image):
         
     return bkg_subtracted_image
 
-def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log):
+def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, background_subtract):
     """
     Reduces raw light frame images by subtracting master darks, dividing by master flats, and applying bad pixel masks.
 
@@ -474,9 +493,17 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 # log += ["Subtracted Master_dark_" + str(raw_image_exp_time) + "s\n"]
                 log += ["Divided normalized_master_flat_" + raw_image_df["Filter"][index] + "\n"]
 
-            # Subtract the background of the reduced image
-            bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-            log += ["Subtracted background\n"]
+            # Check if the background subtraction is ON
+            if background_subtract or background_subtract == "True":
+                # Subtract the background of the reduced image
+                bkg_subtracted_reduced_image = background_subtraction(reduced_image)
+                log += ["Subtracted background\n"]
+
+            elif not background_subtract or background_subtract == "False":
+                # If background subtraction is OFF, just use the reduced image
+                bkg_subtracted_reduced_image = reduced_image
+                log += ["Background Subtraction skipped\n"]
+
             # Mask the bad pixels (MBP) in the background subtracted reduced science images
             if "mask_" + raw_image_filter not in masks:
                 log += [f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking\n"]

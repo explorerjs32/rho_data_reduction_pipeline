@@ -17,11 +17,12 @@ from tqdm.auto import tqdm
 parser = argparse.ArgumentParser(
     description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
 
-parser.add_argument('-light', '--light', type=str, nargs='+', required=True, help="Single or multiple directories containing light frames only")
-parser.add_argument('-dark', '--dark', type=str, nargs='+', required=True, help="Single or multiple directories containing dark frames only")
-parser.add_argument('-flat', '--flat', type=str, nargs='+', required=True, help="Single or multiple directories containing flat frames only")
-parser.add_argument('-bias', '--bias', type=str, nargs='+', required=True, help="Single or multiple directories containing bias frames only")
-parser.add_argument('-output', '--output', type=str, default='', required=True, help='Output directory to store the reduced frames. This directory MUST BE pre-created.')
+parser.add_argument('-l', '--light', type=str, nargs='+', required=True, help="Single or multiple directories containing light frames only")
+parser.add_argument('-d', '--dark', type=str, nargs='+', required=True, help="Single or multiple directories containing dark frames only")
+parser.add_argument('-f', '--flat', type=str, nargs='+', required=True, help="Single or multiple directories containing flat frames only")
+parser.add_argument('-b', '--bias', type=str, nargs='+', required=True, help="Single or multiple directories containing bias frames only")
+parser.add_argument('-B', '--background_subtract', type=str2bool, default=True, help="Perform background subtraction (True/False). Default is True")
+parser.add_argument('-o', '--output', type=str, default='', required=True, help='Output directory to store the reduced frames. This directory MUST BE pre-created.')
 
 args = parser.parse_args()
 
@@ -33,11 +34,18 @@ log += ["RETRHO Data Reduction Pipeline Initiated...\n"
         "Reducing Data from " + "; ".join(args.light) + "\n\n"]
 
 frame_info_df, observing_log_df = get_frame_info(args.light, args.dark, args.flat, args.bias)
-log += ["Objects observed: " + str(len(frame_info_df["Object"].unique())) + "\n"
+log += ["Objects observed: " + str(len(frame_info_df["Object"].unique()) - 1) + "\n"
         "Light Frames: " + str(frame_info_df["Frame"].str.count("Light").sum()) + "\n"
         "Dark Frames: " + str(frame_info_df["Frame"].str.count("Dark").sum()) + "\n"
         "Flat Frames: " + str(frame_info_df["Frame"].str.count("Flat").sum()) + "\n"
         "Bias Frames: " + str(frame_info_df["Frame"].str.count("Bias").sum()) + "\n\n"]
+
+if bool(args.background_subtract):
+    log += ["Background Subtraction is ON\n\n"]
+
+elif not bool(args.background_subtract):
+    log += ["Background Subtraction is OFF\n\n"]
+
 
 # Identify master bias frames and combine them
 log += ["Creating Master Bias...\n"]
@@ -57,7 +65,7 @@ log += ["Done!\n\n"]
 print("Done creating Calibration frames\n")
 
 # Conduct image reduction process
-reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log)
+reduced_images = image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, bool(args.background_subtract))
 print("Done reducing the raw data\n")
 
 # Aligned the reduced images
