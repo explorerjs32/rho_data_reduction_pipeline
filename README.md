@@ -55,7 +55,7 @@ Once you have downloaded the raw images from RHO, you can parse in the data dire
 
 You can run the script as follows:
 
-`python sort_observations.py --dir <path_to_raw_data>`
+`python sort_observations.py -d <path_to_raw_data>`
 
 **Note:** You should parse in a directory rather than a list of files or a single file for the code to work properly.
 

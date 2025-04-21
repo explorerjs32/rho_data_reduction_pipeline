@@ -76,8 +76,8 @@ print("Done aligning images\n")
 output_dir = os.path.join(args.output, 'Reduced')
 os.makedirs(output_dir, exist_ok=True)
 
-# Create fits images
-create_fits(frame_info_df, aligned_images, output_dir, log)
+# Create fits images and extract the information on reduced frames
+reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log)
 print("Done with the data reduction. See final report on " + output_dir)
 
 # Transferring log list of strings to the txt file
@@ -86,7 +86,7 @@ for line in log:
     logfile.write(line)
 logfile.close()
 
-#Saving data of normalized flat, bias noise, and dark current
+# Saving data of normalized flat, bias noise, and dark current
 uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
 uncertainties.extend(uncertainties_dark_current.items())  # Dark current rows
 uncertainties.extend(flats_uncertainty_dict.items())  # Flat noise rows
@@ -94,3 +94,6 @@ uncertainties.extend(flats_uncertainty_dict.items())  # Flat noise rows
 df = pd.DataFrame(uncertainties)
 csv_path = os.path.join(output_dir, 'Uncertainties.csv')
 df.to_csv(csv_path, index=False, header=False, sep=" ", quoting=3)  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
+
+# Saving the information on reduced frames
+reduced_frames_df.to_csv(os.path.join(output_dir, 'Reduced_Frames_info.csv'), index=False, sep=" ")  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings

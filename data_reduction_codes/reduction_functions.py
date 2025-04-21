@@ -78,8 +78,8 @@ def get_frame_info(light_dirs, dark_dirs, flat_dirs, bias_dirs):
             obj_name = header.get('OBJECT', 'Unknown')
 
             # If the object name is 'Unknown', skip this file
-            if obj_name == 'Unknown':
-                continue
+            # if obj_name == 'Unknown':
+            #     continue
 
             frame = header.get('FRAME', 'Unknown')
             exp_time = header.get('EXPTIME', 0)
@@ -232,7 +232,7 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
     # Creating the master darks- one for each exposure time.
     # For each unique exposure (entry in observing log that is a dark frame), get that exposure time
     darks_df = frame_info_df[frame_info_df['Frame'] == 'Dark'].reset_index(drop=True)
-    dark_exposure_times = darks_df['Exptime'].unique()
+    dark_exposure_times = darks_df['Exptime'].unique().round(3).astype(float)
 
     # Go through the darks of that exposure length to create the master-
     master_darks = {}
@@ -247,18 +247,19 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
 
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
-        #Removing noise from dark frames to get the dark current
+        # Removing noise from dark frames to get the dark current
         darks_exp_array = np.array(darks_exp)
         darks_list = darks_exp_array - master_bias_noise
-        #Taking median twice from the bias subtracted darks
+
+        # Taking median twice from the bias subtracted darks
         debiased_master_dark = np.median(darks_list, axis=0)
 
         # Updating dictionary entry for dark current
-        uncertainty = np.median(debiased_master_dark)/exp
-        dark_uncertainties["Dark_Current_" + str(int(exp)) + "s"] = uncertainty
+        uncertainty = np.median(debiased_master_dark) / exp
+        dark_uncertainties["Dark_Current_" + str(exp) + "s"] = uncertainty
 
         # Logging master darks created
-        log += ["Master_dark_" + str(int(exp)) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
+        log += ["Master_dark_" + str(exp) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks, dark_uncertainties
@@ -304,32 +305,32 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
 
         for index, row in flats_df.iterrows():
             # Get the exposure time of the flat frame
-            flat_exptime = fits.getheader(os.path.join(row['Directory'], row['Files']))['EXPTIME']
+            flat_exptime = round(fits.getheader(os.path.join(row['Directory'], row['Files']))['EXPTIME'], 3)
 
             if flat_exptime in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
-                # print(f"subtracting {flat_exptime}s master dark from {row['Files']}")
                 flats_filter.append(
                     fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
 
             elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
-                # print(f"subtracting master bias from {row['Files']}")
                 flats_filter.append(fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_bias)
 
         # Combine the flats and normalize the master flat
-        master_flat = np.median(np.array(flats_filter), axis=0)
+        master_flat = np.mean(np.array(flats_filter), axis=0)
         normalized_master_flat = master_flat / np.median(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
-        #Calculating uncertainty of flats
+        # Calculating uncertainty of flats
         uncertainty = np.std(normalized_master_flat)
+
         # Updating flat_uncertainties dictionary
         flat_uncertainties["Flat_" + filter_name + "_Noise"] = uncertainty
+
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
 
     return flat_filters, master_flats, flat_uncertainties
 
-def background_subtraction(image):
+def background_subtraction(image, log):
     """
     Subtracts the background from an astronomical image using a 2D background estimation.
 
@@ -345,26 +346,33 @@ def background_subtraction(image):
     Returns:
         numpy.ndarray: The background-subtracted image.
     """
-
     # Define the paameters to estimate the the sky background of the image
     # A non-uniform background brightness is going to be assumed
-    sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
-    threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
-    segment_img = detect_sources(image, threshold, npixels=10)
-    footprint = circular_footprint(radius=10)
-    mask = segment_img.make_source_mask(footprint=footprint)
-    box_size = (30, 30)
-    filter_size = (3, 3)
-    bkg_estimator = MedianBackground()
-    
-    # Estimate the 2D background of the image
-    bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
-                       sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
-
-    # Subtract the background from the image reduced image
-    bkg_subtracted_image = image - bkg.background
+    try:
+        sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+        threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
+        segment_img = detect_sources(image, threshold, npixels=10)
+        footprint = circular_footprint(radius=10)
+        mask = segment_img.make_source_mask(footprint=footprint)
+        box_size = (30, 30)
+        filter_size = (3, 3)
+        bkg_estimator = MedianBackground()
         
-    return bkg_subtracted_image
+        # Estimate the 2D background of the image
+        bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
+                        sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
+
+        # Subtract the background from the image reduced image
+        bkg_subtracted_image = image - bkg.background
+
+        log += ["Subtracted background\n"]
+            
+        return bkg_subtracted_image
+    
+    except(AttributeError):
+        log += ["Background Subtraction skipped\n"]
+
+        return image
 
 def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, background_subtract):
     """
@@ -432,7 +440,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
             # Logging image reduction object name, file, exposure time
             log += ["Raw file: " + file + "\n"]
-            log += ["Exposure time: " + str(int(raw_image_exp_time)) + " sec\n"]
+            log += ["Exposure time: " + str(raw_image_exp_time) + " sec\n"]
             log += ["Filter: " + raw_image_filter + "\n"]
 
             # Identify dark_frame match OR closest match
@@ -494,12 +502,11 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 log += ["Divided normalized_master_flat_" + raw_image_df["Filter"][index] + "\n"]
 
             # Check if the background subtraction is ON
-            if background_subtract or background_subtract == "True":
+            if background_subtract:
                 # Subtract the background of the reduced image
-                bkg_subtracted_reduced_image = background_subtraction(reduced_image)
-                log += ["Subtracted background\n"]
+                bkg_subtracted_reduced_image = background_subtraction(reduced_image, log)
 
-            elif not background_subtract or background_subtract == "False":
+            elif not background_subtract:
                 # If background subtraction is OFF, just use the reduced image
                 bkg_subtracted_reduced_image = reduced_image
                 log += ["Background Subtraction skipped\n"]
@@ -520,7 +527,6 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
         master_reduced_frames[object] = reduced_images
 
-    # Finally, return the image reduced product
     return master_reduced_frames
 
 def align_images(master_reduced_data, log):
@@ -585,7 +591,7 @@ def align_images(master_reduced_data, log):
                     aligned_image, footprint = aa.apply_transform(transf, source=image, target=template_image)
                     aligned_images[files[i]] = aligned_image
 
-                except(MaxIterError):
+                except(MaxIterError, ValueError):
                     aligned_images[files[i]] = image
                     bad_aligned_images.append(files[i])
                     pass
@@ -617,6 +623,15 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
         True (it completed)
     '''
 
+    # Define a dataframe to save the information of the reduced images
+    reduced_frames_info = pd.DataFrame()
+    fnames = []
+    object_names = []
+    RAs = []
+    DECs = []
+    exptimes = []
+    filters = []
+
     # Get the object names from the aligned data dictionary
     objects = list(master_aligned_images.keys())
 
@@ -644,6 +659,14 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
             # For each frame in the raw, get the header
             raw_header = fits.getheader(file_path)
 
+            # Append the information into the lists
+            fnames.append(file[:-5] + "_reduced.fits")
+            object_names.append(object)
+            RAs.append(raw_header['RA'])
+            DECs.append(raw_header['DEC'])
+            exptimes.append(raw_header['EXPTIME'])
+            filters.append(raw_header['FILTER'])
+
             # Create the file capsule
             hdu = fits.PrimaryHDU(data=aligned_images[file], header=raw_header)
 
@@ -660,4 +683,12 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
         log += ["Finished creating files for object " + object + "\n"]
         log += [f"Saving reduced frames to {final_dir}"]
 
-    return True
+    # Add the lists into the datafrme
+    reduced_frames_info["File"] = fnames
+    reduced_frames_info["Object"] = object_names
+    reduced_frames_info["RA"] = RAs
+    reduced_frames_info["DEC"] = DECs
+    reduced_frames_info["Exptime"] = exptimes
+    reduced_frames_info["Filter"] = filters
+
+    return reduced_frames_info
