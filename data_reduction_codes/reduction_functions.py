@@ -472,7 +472,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 log += ["Subtracted Master_dark_" + str(dark_times[min(range(len(dark_times)), key=lambda i: abs(dark_times[i]-temp_times[0]))]) + "s\n"]
 
             # Identify flat_frame match OR provide feedback on missing filters for master_flats
-            flat_frame = []
+            #flat_frame = []
             flat_frame_found = False
 
             # FIXME - Fix filter issue
@@ -480,8 +480,6 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 # If filter key found, use the given flat_frame
                 flat_frame = master_flats["master_flat_" + object_raw_image_df["Filter"][index]]
                 flat_frame_found = True
-
-                # Logging master flat division
 
             else:
                 # Otherwise, identify the missing filters
@@ -554,7 +552,7 @@ def align_images(master_reduced_data, log):
     master_aligned_images = {}
 
     for object in objects:
-        log += [f"Aligning images for {object}\n\n"]
+        log += [f"\n\nAligning images for {object}\n\n"]
 
         # Get the reduced images per object
         reduced_data = master_reduced_data[object]
