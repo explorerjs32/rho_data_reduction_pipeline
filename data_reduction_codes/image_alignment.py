@@ -8,26 +8,57 @@ import os
 
 
 class ImageAlignmentTool:
-    def __init__(self, template_image, target_image):
+    def __init__(self, data_dir, template_image_file, target_image_file):
         """
-        Initialize the alignment tool with template and target images.
+        Initialize the alignment tool with image file paths.
         
         Parameters:
         -----------
-        template_image : numpy.ndarray
-            Reference image for alignment
-        target_image : numpy.ndarray
-            Image to be aligned with template
+        data_dir : str
+            Directory containing the FITS images
+        template_image_file : str
+            Filename of the template image
+        target_image_file : str
+            Filename of the target image
         """
-        self.template = template_image
-        self.target = target_image
+        # Store the file names
+        self.template_filename = template_image_file
+        self.target_filename = target_image_file
+
+        # Load the images
+        self.template = fits.getdata(os.path.join(data_dir, template_image_file)).astype(float)
+        self.target = fits.getdata(os.path.join(data_dir, target_image_file)).astype(float)
+
+        # Initialize the points for template and target images
         self.template_points = []
         self.target_points = []
         self.current_points = []
         self.selecting_template = True
 
-        # Create the figure and subplots
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(1, 3, figsize=(15, 5), tight_layout=True)
+        # Create the figure and subplots in a 2x2 grid
+        self.fig = plt.figure(figsize=(20, 15), tight_layout=True)
+        gs = self.fig.add_gridspec(2, 2, hspace=0.2, wspace=0.2)
+
+        # Create subplots for the template, target, and overlay images
+        self.ax1 = self.fig.add_subplot(gs[0, 0])
+        self.ax2 = self.fig.add_subplot(gs[0, 1])
+        self.ax3 = self.fig.add_subplot(gs[1, 0])
+        self.button_panel = self.fig.add_subplot(gs[1, 1])
+
+        # Remove the axes labels and ticks for the image panels
+        self.ax1.axis('off')
+        self.ax2.axis('off')
+        self.ax3.axis('off')
+
+        # Remove the axis for the button panel
+        self.button_panel.axis('off')
+
+        # Connect the scroll event to the zoom function
+        self.scroll_cid = self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
+
+        # Add reference to navigation toolbar
+        self.toolbar = plt.get_current_fig_manager().toolbar
+
         self.setup_plot()
 
     def setup_plot(self):
@@ -41,12 +72,23 @@ class ImageAlignmentTool:
         # Display the images
         self.ax1.imshow(self.template, origin='lower', cmap='gray', norm=template_norm)
         self.ax2.imshow(self.target, origin='lower', cmap='gray', norm=target_norm)
-        self.ax3.imshow(self.target, origin='lower', cmap='Reds', alpha=0.5, norm=target_norm)
+        
+        # Display overlay
         self.ax3.imshow(self.template, origin='lower', cmap='Blues', alpha=0.5, norm=template_norm)
+        self.ax3.imshow(self.target, origin='lower', cmap='Reds', alpha=0.5, norm=target_norm)
+        
+        # Create proxy artists for legend
+        template_patch = plt.Rectangle((0, 0), 1, 1, fc='blue', alpha=0.5)
+        target_patch = plt.Rectangle((0, 0), 1, 1, fc='red', alpha=0.5)
+        
+        # Add legend with proxy artists
+        self.ax3.legend([template_patch, target_patch], 
+                        ['Template', 'Target'],
+                        bbox_to_anchor=(1.26, 1))
 
         # Set titles
-        self.ax1.set_title("Template Image")
-        self.ax2.set_title("Target Image")
+        self.ax1.set_title(f"{self.template_filename} (Template Image)", size=10)
+        self.ax2.set_title(f"{self.target_filename} (Target Image)", size=10)
         self.ax3.set_title("Overlay of Template and Target")
 
         # Add buttons for interaction
@@ -55,17 +97,60 @@ class ImageAlignmentTool:
         # Connect the click event to the function
         self.click_cid = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
 
+    def zoom_image(self, event):
+        """
+        Zoom in and out of the images using the scroll wheel.
+        """
+        if event.inaxes in [self.ax1, self.ax2, self.ax3]:
+            current_ax = event.inaxes
+            x, y = event.xdata, event.ydata
+            scale_factor = 1.25 if event.button == 'down' else 0.75
+            
+            # Get current x and y limits
+            cur_xlim = current_ax.get_xlim()
+            cur_ylim = current_ax.get_ylim()
+            
+            # Calculate the new limits
+            new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
+            new_height = (cur_ylim[1] - cur_ylim[0]) * scale_factor
+            
+            # Calculate center points
+            xcenter = (cur_xlim[0] + cur_xlim[1]) / 2
+            ycenter = (cur_ylim[0] + cur_ylim[1]) / 2
+            
+            # Set new limits
+            current_ax.set_xlim([xcenter - new_width / 2, xcenter + new_width / 2])
+            current_ax.set_ylim([ycenter - new_height / 2, ycenter + new_height / 2])
+            
+            # Get the original image dimensions based on which image is being zoomed
+            if current_ax == self.ax1:
+                image_data = self.template
+            elif current_ax == self.ax2:
+                image_data = self.target
+            else:  # For overlay plot (ax3), use template dimensions
+                image_data = self.template
+                
+            image_height, image_width = image_data.shape
+            
+            # Set the limits to the original image dimensions if zoomed out too much
+            if new_width > image_width:
+                current_ax.set_xlim(0, image_width)
+            if new_height > image_height:
+                current_ax.set_ylim(0, image_height)
+                
+            self.fig.canvas.draw_idle()
+
     def add_buttons(self):
         """
-        Add interactive buttons to the  plot for user interaction.
+        Add interactive buttons to the plot.
         """
-        # Create button axes
-        self.button_ax = plt.axes([0.8, 0.05, 0.1, 0.04])
-        self.reset_ax = plt.axes([0.6, 0.05, 0.1, 0.04])
+        # Create button axes in the bottom right panel
+        self.align_button_ax = plt.axes([0.65, 0.3, 0.25, 0.05])
+        self.reset_button_ax = plt.axes([0.65, 0.2, 0.25, 0.05])
 
         # Create the buttons
-        self.align_button = Button(self.button_ax, "Align")
-        self.reset_button = Button(self.reset_ax, "Reset")
+        self.align_button = Button(self.align_button_ax, "Align")
+        self.reset_button = Button(self.reset_button_ax, "Reset")
 
         # Add button callbacks
         self.align_button.on_clicked(self.align_images)
@@ -75,6 +160,10 @@ class ImageAlignmentTool:
         """
         Handle click events for point selection.
         """
+        # Check if any navigation toolbar tool is active
+        if self.toolbar.mode != '':
+            return
+            
         if event.inaxes == self.ax1 and self.selecting_template:
             # Get the coordinates of the clicked point in the template image
             x, y = int(event.xdata), int(event.ydata)
@@ -118,6 +207,16 @@ class ImageAlignmentTool:
         self.ax3.clear()
         self.ax3.imshow(self.template, origin='lower', cmap='Blues', alpha=0.5, norm=ImageNormalize(self.template, interval=ZScaleInterval()))
         self.ax3.imshow(rolled_target, origin='lower', cmap='Reds', alpha=0.5, norm=rolled_target_norm)
+
+        # Create proxy artists for legend
+        template_patch = plt.Rectangle((0, 0), 1, 1, fc='blue', alpha=0.5)
+        target_patch = plt.Rectangle((0, 0), 1, 1, fc='red', alpha=0.5)
+        
+        # Add legend with proxy artists
+        self.ax3.legend([template_patch, target_patch], 
+                        ['Template', 'Target'],
+                        bbox_to_anchor=(1.26, 1))
+        
         self.ax3.set_title("Aligned Overlay")
         plt.draw()
 
@@ -135,15 +234,28 @@ class ImageAlignmentTool:
         self.ax2.clear()
         self.ax3.clear()
 
-        # Redraw original images
-        self.ax1.imshow(self.template, origin='lower', cmap='gray', norm=ImageNormalize(self.template, interval=ZScaleInterval()))
-        self.ax2.imshow(self.target, origin='lower', cmap='gray', norm=ImageNormalize(self.target, interval=ZScaleInterval()))
-        self.ax3.imshow(self.target, origin='lower', cmap='Reds', alpha=0.5, norm=ImageNormalize(self.target, interval=ZScaleInterval()))
-        self.ax3.imshow(self.template, origin='lower', cmap='Blues', alpha=0.5, norm=ImageNormalize(self.template, interval=ZScaleInterval()))
+        # Redraw original images with overlay
+        self.ax1.imshow(self.template, origin='lower', cmap='gray', 
+                        norm=ImageNormalize(self.template, interval=ZScaleInterval()))
+        self.ax2.imshow(self.target, origin='lower', cmap='gray', 
+                        norm=ImageNormalize(self.target, interval=ZScaleInterval()))
+        self.ax3.imshow(self.template, origin='lower', cmap='Blues', 
+                        alpha=0.5, norm=ImageNormalize(self.template, interval=ZScaleInterval()))
+        self.ax3.imshow(self.target, origin='lower', cmap='Reds', 
+                        alpha=0.5, norm=ImageNormalize(self.target, interval=ZScaleInterval()))
+
+        # Create proxy artists for legend
+        template_patch = plt.Rectangle((0, 0), 1, 1, fc='blue', alpha=0.5)
+        target_patch = plt.Rectangle((0, 0), 1, 1, fc='red', alpha=0.5)
+        
+        # Add legend with proxy artists
+        self.ax3.legend([template_patch, target_patch], 
+                        ['Template', 'Target'],
+                        bbox_to_anchor=(1.26, 1))
 
         # Reset titles
-        self.ax1.set_title("Template Image")
-        self.ax2.set_title("Target Image")
+        self.ax1.set_title(f"{self.template_filename} (Template Image)")
+        self.ax2.set_title(f"{self.target_filename} (Target Image)")
         self.ax3.set_title("Overlay of Template and Target")
 
         plt.draw()
@@ -161,11 +273,8 @@ def main():
     # Load the images
     image_files = sorted([f for f in os.listdir(args.input_dir) if f.endswith('.fits')])
 
-    # Define the template image (first image in the list)
-    template_image = fits.getdata(os.path.join(args.input_dir, image_files[0]))
-
     # Run the alignment tool
-    allignment_tool = ImageAlignmentTool(template_image, fits.getdata(os.path.join(args.input_dir, image_files[6])))
+    allignment_tool = ImageAlignmentTool(args.input_dir, image_files[0], image_files[6])
     plt.show()
 
 if __name__ == "__main__":
