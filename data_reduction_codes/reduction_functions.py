@@ -14,6 +14,13 @@ import os
 import argparse
 from tqdm.auto import tqdm
 
+from alignment import ImageAlignmentTool
+
+# Filter the FutureWarning about sep package
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning, 
+                       module='importlib._bootstrap')
+
 
 def str2bool(v):
     """
@@ -572,35 +579,41 @@ def align_images(master_reduced_data, log):
         bad_aligned_images = []
 
         # Interpolate over the list of images to align them
-        for i, image in tqdm(enumerate(images), desc=f"Aligning images for {object}", unit=' frames',
-                            total=len(images), dynamic_ncols=True):
-
-            # If the image is the first one and the template image, add it to the list
+        for i, image in tqdm(enumerate(images), desc=f"Aligning images for {object}", 
+                        unit=' frames', total=len(images), dynamic_ncols=True):
             if i == 0:
                 aligned_images[files[i]] = image
-
-            # Else, align the rest of the images to the template
-            elif i > 0:
+            else:
                 try:
-                    # Find the transformation between the images
-                    transf, (source_list, target_list) = aa.find_transform(image, template_image, max_control_points=10)
-                    
-                    # Apply the transformation to align image2 with image1
-                    aligned_image, footprint = aa.apply_transform(transf, source=image, target=template_image)
+                    # Try automatic alignment first
+                    transf, (source_list, target_list) = aa.find_transform(image, template_image, 
+                                                                        max_control_points=10)
+                    aligned_image, footprint = aa.apply_transform(transf, source=image, 
+                                                            target=template_image)
                     aligned_images[files[i]] = aligned_image
+                    log += [f"\nSuccessfully aligned {files[i]} automatically"]
 
                 except(MaxIterError, ValueError):
-                    aligned_images[files[i]] = image
-                    bad_aligned_images.append(files[i])
-                    pass
-        
-        # Add to the log the images with alignment issues
-        log += ["The following images were not aligned:"]
-
-        for bad_file in bad_aligned_images:
-            log += [f"\n\t{bad_file[:-5]}_reduced.fits"]
-
-        bad_aligned_images = []
+                    log += [f"\nAutomatic alignment failed for {files[i]}, switching to manual alignment"]
+                    
+                    # Launch manual alignment tool
+                    alignment_tool = ImageAlignmentTool(
+                        template_image, 
+                        image,
+                        template_name=files[0],
+                        target_name=files[i]
+                    )
+                    plt.show()  # This will block until Done button is pressed
+                    
+                    # Get the aligned image
+                    aligned_image = alignment_tool.get_aligned_image()
+                    if aligned_image is not None:
+                        aligned_images[files[i]] = aligned_image
+                        log += [f"\nManually aligned {files[i]}"]
+                    else:
+                        aligned_images[files[i]] = image
+                        bad_aligned_images.append(files[i])
+                        log += [f"\nManual alignment failed for {files[i]}, using unaligned image"]
 
         master_aligned_images[object] = aligned_images
 
