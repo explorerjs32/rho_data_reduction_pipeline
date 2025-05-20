@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 from astropy.visualization import ImageNormalize, ZScaleInterval
+from PyQt5.QtWidgets import QApplication
+import sys
 
 
 class ImageAlignmentTool:
@@ -20,6 +22,18 @@ class ImageAlignmentTool:
         target_name : str, optional
             Name of the target image for display
         """
+        # Get screen dimensions using Qt
+        app = QApplication.instance() or QApplication(sys.argv)
+        screen = app.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        screen_height = screen_geometry.height()
+        screen_width = screen_geometry.width()
+
+        # Calculate figure size to match screen height (with some padding)
+        dpi = 100.0  # matplotlib default DPI
+        height_inches = (screen_height * 0.85) / dpi  # 95% of screen height
+        width_inches = height_inches * 1.5  # maintain aspect ratio
+
         # Store the images and names
         self.template = template_image
         self.target = target_image
@@ -30,11 +44,26 @@ class ImageAlignmentTool:
         self.template_points = []
         self.target_points = []
         self.selecting_template = True
+        self.accepted = False
+        self.ignored = False
 
-        # Create the figure and subplots in a 2x2 grid
-        self.fig = plt.figure(figsize=(20, 15))
+        # Close any existing figures
+        plt.close('all')
+        
+        # Create the figure with calculated size
+        self.fig = plt.figure(num='Alignment Tool', figsize=(width_inches, height_inches))
+        
+        # Position window at the center of the screen
+        manager = plt.get_current_fig_manager()
+        if hasattr(manager, 'window'):
+            window = manager.window
+            x = (screen_width - window.width()) // 2
+            y = (screen_height - window.height()) // 2
+            window.move(x, y)
+        
         gs = self.fig.add_gridspec(2, 2, hspace=0.2, wspace=0.2)
-
+        
+    
         # Create subplots for the template, target, and overlay images
         self.ax1 = self.fig.add_subplot(gs[0, 0])
         self.ax2 = self.fig.add_subplot(gs[0, 1])
@@ -81,12 +110,13 @@ class ImageAlignmentTool:
         self.ax3.legend([template_patch, target_patch], 
                         ['Template', 'Target'],
                         ncols=2,
-                        bbox_to_anchor=(0.8, 0.0))
+                        bbox_to_anchor=(0.8, 0.0),
+                        fontsize=15)
 
         # Set titles
-        self.ax1.set_title(f"{self.template_filename} (Template Image)", size=10)
-        self.ax2.set_title(f"{self.target_filename} (Target Image)", size=10)
-        self.ax3.set_title("Overlay of Template and Target")
+        self.ax1.set_title(f"{self.template_filename} (Template Image)", size=15)
+        self.ax2.set_title(f"{self.target_filename} (Target Image)", size=15)
+        self.ax3.set_title("Overlay of Template and Target", size=15)
 
         # Add buttons for interaction
         self.add_buttons()
@@ -141,19 +171,35 @@ class ImageAlignmentTool:
         """
         Add interactive buttons to the plot.
         """
-        # Create button axes in the bottom right panel
-        self.align_button_ax = plt.axes([0.65, 0.35, 0.25, 0.05])
-        self.reset_button_ax = plt.axes([0.65, 0.25, 0.25, 0.05])
-        self.done_button_ax = plt.axes([0.65, 0.15, 0.25, 0.05])
+        # Create button axes with adjusted positions
+        button_height = 0.05
+        button_width = 0.10
+        spacing = 0.07
+        
+        self.align_button_ax = plt.axes([0.58, 0.45, button_width, button_height])
+        self.reset_button_ax = plt.axes([0.78, 0.45, button_width, button_height])
+        self.accept_button_ax = plt.axes([0.58, 0.35, button_width, button_height])
+        self.ignore_button_ax = plt.axes([0.78, 0.35, button_width, button_height])
+        self.done_button_ax = plt.axes([0.68, 0.25, button_width, button_height])
 
-        # Create the buttons
-        self.align_button = Button(self.align_button_ax, "Align")
-        self.reset_button = Button(self.reset_button_ax, "Reset")
-        self.done_button = Button(self.done_button_ax, "Done")
+        # Create the buttons with larger font size
+        self.align_button = Button(self.align_button_ax, "Align", color='0.85', hovercolor='0.95')
+        self.reset_button = Button(self.reset_button_ax, "Reset", color='0.85', hovercolor='0.95')
+        self.accept_button = Button(self.accept_button_ax, "Accept As Is", color='0.85', hovercolor='0.95')
+        self.ignore_button = Button(self.ignore_button_ax, "Ignore Image", color='0.85', hovercolor='0.95')
+        self.done_button = Button(self.done_button_ax, "Done", color='0.85', hovercolor='0.95')
+
+        # Set font size for all buttons
+        for button in [self.align_button, self.reset_button, self.accept_button, 
+                    self.ignore_button, self.done_button]:
+            button.label.set_fontsize(20)
+            button.label.set_weight('bold')
 
         # Add button callbacks
         self.align_button.on_clicked(self.align_images)
         self.reset_button.on_clicked(self.reset)
+        self.accept_button.on_clicked(self.accept_image)
+        self.ignore_button.on_clicked(self.ignore_image)
         self.done_button.on_clicked(self.close_figure)
 
     def on_click(self, event):
@@ -216,14 +262,15 @@ class ImageAlignmentTool:
         self.ax3.legend([template_patch, target_patch], 
                         ['Template', 'Target'],
                         ncols=2,
-                        bbox_to_anchor=(0.8, 0.0))
+                        bbox_to_anchor=(0.8, 0.0),
+                        fontsize=15)
         
         # Remove the axes labels and ticks for the image panels
         self.ax1.axis('off')
         self.ax2.axis('off')
         self.ax3.axis('off')
         
-        self.ax3.set_title("Aligned Overlay")
+        self.ax3.set_title("Aligned Overlay", size=15)
         plt.draw()
 
     def reset(self, event):
@@ -258,7 +305,8 @@ class ImageAlignmentTool:
         self.ax3.legend([template_patch, target_patch], 
                         ['Template', 'Target'],
                         ncols=2,
-                        bbox_to_anchor=(0.8, 0.0))
+                        bbox_to_anchor=(0.8, 0.0),
+                        fontsize=15)
         
         # Remove the axes labels and ticks for the image panels
         self.ax1.axis('off')
@@ -266,11 +314,25 @@ class ImageAlignmentTool:
         self.ax3.axis('off')
 
         # Reset titles
-        self.ax1.set_title(f"{self.template_filename} (Template Image)")
-        self.ax2.set_title(f"{self.target_filename} (Target Image)")
-        self.ax3.set_title("Overlay of Template and Target")
+        self.ax1.set_title(f"{self.template_filename} (Template Image)", size=15)
+        self.ax2.set_title(f"{self.target_filename} (Target Image)", size=15)
+        self.ax3.set_title("Overlay of Template and Target", size=15)
 
         plt.draw()
+
+    def accept_image(self, event):
+        """
+        Accept the image as-is without alignment.
+        """
+        self.accepted = True
+        plt.close(self.fig)
+
+    def ignore_image(self, event):
+        """
+        Ignore the image and continue with the loop.
+        """
+        self.ignored = True
+        plt.close(self.fig)
 
     def get_aligned_image(self):
         """
@@ -279,8 +341,14 @@ class ImageAlignmentTool:
         Returns:
         --------
         numpy.ndarray or None
-            The aligned image if alignment was successful, None otherwise
+            The aligned image if alignment was successful or image was accepted,
+            None if image was ignored or alignment failed
         """
+        if self.ignored:
+            return None
+        if self.accepted:
+            return self.target
+        
         shift = self.calculate_shift()
         if shift:
             return np.roll(np.roll(self.target, -shift[1], axis=0), -shift[0], axis=1)

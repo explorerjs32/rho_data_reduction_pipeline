@@ -93,7 +93,7 @@ uncertainties.extend(flats_uncertainty_dict.items())  # Flat noise rows
 
 df = pd.DataFrame(uncertainties)
 csv_path = os.path.join(output_dir, 'Uncertainties.csv')
-df.to_csv(csv_path, index=False, header=False, sep=" ", quoting=3)  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
+df.to_csv(csv_path, index=False, header=False, sep=" ")  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
 
 # Saving the information on reduced frames
 reduced_frames_df.to_csv(os.path.join(output_dir, 'Reduced_Frames_info.csv'), index=False, sep=" ")  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings

@@ -518,6 +518,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
             # Mask the bad pixels (MBP) in the background subtracted reduced science images
             if "mask_" + raw_image_filter not in masks:
+                final_reduced_image = bkg_subtracted_reduced_image
                 log += [f"Bad pixel mask for filter {raw_image_filter} was not found. Skipping masking\n"]
 
             else:
@@ -587,14 +588,18 @@ def align_images(master_reduced_data, log):
                 try:
                     # Try automatic alignment first
                     transf, (source_list, target_list) = aa.find_transform(image, template_image, 
-                                                                        max_control_points=10)
-                    aligned_image, footprint = aa.apply_transform(transf, source=image, 
-                                                            target=template_image)
+                                                                           max_control_points=10)
+                    aligned_image, footprint = aa.apply_transform(transf, source=image, target=template_image)
+
+                    # Save the aligned image
                     aligned_images[files[i]] = aligned_image
                     log += [f"\nSuccessfully aligned {files[i]} automatically"]
 
                 except(MaxIterError, ValueError):
                     log += [f"\nAutomatic alignment failed for {files[i]}, switching to manual alignment"]
+
+                    # Clean up any existing figures
+                    plt.close('all')
                     
                     # Launch manual alignment tool
                     alignment_tool = ImageAlignmentTool(
@@ -603,17 +608,25 @@ def align_images(master_reduced_data, log):
                         template_name=files[0],
                         target_name=files[i]
                     )
-                    plt.show()  # This will block until Done button is pressed
+                    plt.show()  # This will block until a button is clicked
                     
                     # Get the aligned image
                     aligned_image = alignment_tool.get_aligned_image()
-                    if aligned_image is not None:
+                    
+                    if alignment_tool.ignored:
+                        log += [f"\nImage {files[i]} was ignored and will be skipped"]
+                        continue  # Skip to next image
+                    elif alignment_tool.accepted:
+                        aligned_images[files[i]] = image  # Save original image
+                        log += [f"\nImage {files[i]} was accepted without alignment"]
+                    elif aligned_image is not None:
                         aligned_images[files[i]] = aligned_image
                         log += [f"\nManually aligned {files[i]}"]
                     else:
                         aligned_images[files[i]] = image
                         bad_aligned_images.append(files[i])
                         log += [f"\nManual alignment failed for {files[i]}, using unaligned image"]
+
 
         master_aligned_images[object] = aligned_images
 
