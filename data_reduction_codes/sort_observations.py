@@ -105,30 +105,22 @@ def organize_frames(data_dir, frame_info_df):
     light_frames_per_object = {}
 
     for object_name in light_frames['Object'].unique():
-        if object_name == 'Unknown':
-            pass
+        # Get the light frames for the current object
+        object_frames = light_frames[light_frames['Object'] == object_name]
 
-        elif light_frames['Object'].unique().size == 1 and object_name == 'Unknown':
-            warnings.warn(f"No Light frames were collected for any specific object")
+        # Create a sub-directory for the object inside the 'Light' directory
+        object_dir = os.path.join(os.path.join(data_dir, 'Light'), object_name)
+        os.makedirs(object_dir, exist_ok=True)
 
+        # Store the light frames per object on a list
+        files_out = []
+        
+        for file in object_frames['Files']:
+            shutil.copy2(os.path.join(data_dir, file), os.path.join(object_dir, file))
+            files_out.append(file)
 
-        else:
-            object_frames = light_frames[light_frames['Object'] == object_name]
-
-            # Create a sub-directory for the object inside the 'Light' directory
-            object_dir = os.path.join(os.path.join(data_dir, 'Light'), object_name)
-            os.makedirs(object_dir, exist_ok=True)
-
-            # Store the light frames per object on a list
-            files_out = []
-            
-            for file in object_frames['Files']:
-                shutil.copy2(os.path.join(data_dir, file), os.path.join(object_dir, file))
-                # print(f"{file} is a light frame for object {object_name}")
-                files_out.append(file)
-
-            light_frames_per_object[object_name] = files_out
-            files_out = []
+        light_frames_per_object[object_name] = files_out
+        files_out = []
 
     # Look for the calibration frames of each object's light frame
     for object_name in light_frames_per_object.keys():
@@ -143,10 +135,8 @@ def organize_frames(data_dir, frame_info_df):
         else:
             for file in bias_frames_files:
                 shutil.copy2(os.path.join(data_dir, file), os.path.join(bias_dir, file))
-                # print(f"{file} is a flat frame for object {object_name}")   
 
         # Get the filters of each object
-        # filters = frame_info_df[frame_info_df['Files'].isin(light_frames_per_object[object_name])]['Filter'].unique()
         filters = frame_info_df[frame_info_df['Frame'] == 'Flat']['Filter'].unique()
 
         # Find the corresponding flat frames
@@ -163,11 +153,8 @@ def organize_frames(data_dir, frame_info_df):
                 for file in flat_frames_files:
                     shutil.copy2(os.path.join(data_dir, file), os.path.join(flats_dir, file))
                     flat_frames_out.append(file)
-                    # print(f"{file} is a flat frame for object {object_name}")             
 
         # Find the corresponding light and flat frames
-        # exp_times = frame_info_df[(frame_info_df['Files'].isin(light_frames_per_object[object_name])) & \
-        #                           (frame_info_df['Files'].isin(flat_frames_out))]['Exptime'].unique()
         exp_times = frame_info_df[(frame_info_df['Files'].isin(flat_frames_out))]['Exptime'].unique().tolist()
         exp_times += frame_info_df[(frame_info_df['Files'].isin(light_frames_per_object[object_name]))]['Exptime'].unique().tolist()
 
@@ -183,16 +170,14 @@ def organize_frames(data_dir, frame_info_df):
             else:
                 for file in dark_frames_files:
                     shutil.copy2(os.path.join(data_dir, file), os.path.join(darks_dir, file))
-                    # print(f"{file} is a dark frame for object {object_name}")
                      
-
     return
 
 # Define the arguments to be parsed into the script
 parser = argparse.ArgumentParser(
     description="Argumets to parse into the observations organizer script. It focuses on organizing the fits files from an input directory containing observations from the Rosemary Hill Observatory.")
 
-parser.add_argument('-dir', '--dir', type=str, nargs='+', required=True, help="Single or multiple directories where observations (fits files) are stored.")
+parser.add_argument('-d', '--dir', type=str, nargs='+', required=True, help="Single or multiple directories where observations (fits files) are stored.")
 
 args = parser.parse_args()
 
