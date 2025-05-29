@@ -178,3 +178,6 @@ g_slider.on_changed(update_G)
 b_slider.on_changed(update_B)
 
 plt.show()
+
+
+git pull origin main
