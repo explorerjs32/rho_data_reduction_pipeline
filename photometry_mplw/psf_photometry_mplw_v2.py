@@ -252,7 +252,7 @@ class PSFPhotometry:
         results_df = pd.DataFrame(data)
         print("\nPhotometry Results:")
         print(results_df)
-        
+        results_df.to_csv('psf_photometry_results.csv', index=False)
         return results_df
 
 
@@ -277,7 +277,7 @@ def get_frame_info(directories):
             except Exception as e:
                 print(f"Error processing file {file} in {directory}: {e}")
                 continue
-
+    
     return pd.DataFrame({
         'Directory': directories_list,
         'File': file_list,
@@ -294,5 +294,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     frame_info_df = get_frame_info(args.data)
+    frame_info_df.to_csv('frame_info.csv', index=False)
     psf_photometry = PSFPhotometry(frame_info_df)
     plt.show()
