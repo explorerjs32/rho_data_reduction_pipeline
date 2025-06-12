@@ -160,7 +160,7 @@ class PSFPhotometry:
         self.draw_psf_button.set_active(True)
         self.done_button.set_active(True)
 
-    def compute_psf_contour(self, image, x, y, size=20):
+    def compute_psf_contour(self, image, x, y, size=40):
         """Compute PSF contour for a star in an image."""
         half_size = size // 2
         region = image[
@@ -169,7 +169,7 @@ class PSFPhotometry:
         ]
         
         mean, median, std = sigma_clipped_stats(region, sigma=3.0)
-        threshold = median + 5.0 * std
+        threshold = median + 3.0 * std
         
         # Create contour and get vertices
         fig, ax = plt.subplots()
@@ -289,7 +289,7 @@ def get_frame_info(directories):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="PSF Photometry Tool")
-    parser.add_argument('-data', '--data', type=str, nargs='+', required=True,
+    parser.add_argument('-d', '--data', type=str, nargs='+', required=True,
                        help="Directories containing reduced images")
     args = parser.parse_args()
     
