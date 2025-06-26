@@ -392,6 +392,24 @@ class aperturePhotometry:
                         color='red', fontsize=10, ha='center', va='bottom')
             self.fig.canvas.draw_idle()
 
+        # Update other images with the same star number and peak positions
+        if current_file in self.photometry_dict and star_number in self.photometry_dict[current_file]:
+                peak_data = self.photometry_dict[current_file][star_number]
+
+                for file_name in self.median_frame_info['File']:
+                    if file_name == current_file:
+                        continue
+
+                    if file_name not in self.photometry_dict:
+                        self.photometry_dict[file_name] = {}
+
+                    if star_number not in self.photometry_dict[file_name]:
+                        self.photometry_dict[file_name][star_number] = {}
+
+                    self.photometry_dict[file_name][star_number] = {
+                        'xpeak': peak_data['xpeak'],
+                        'ypeak': peak_data['ypeak']}
+
     def perform_photometry(self, event):
         """
         Perform PSF photometry on all marked stars in the current image.
