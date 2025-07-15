@@ -6,7 +6,11 @@ from matplotlib.patches import PathPatch
 import matplotlib.widgets as widgets
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
+from astropy.stats import SigmaClip
 from astropy.visualization import ImageNormalize, ZScaleInterval
+from photutils.background import Background2D, MedianBackground
+from photutils.segmentation import detect_threshold, detect_sources
+from photutils.utils import circular_footprint
 import argparse
 import os
 from tqdm import tqdm
@@ -20,7 +24,7 @@ class PSFPhotometry:
         self.star_positions = {}  # {star_number: (x, y)}
         self.psf_contours = {}   # {filename: {star_number: contour_vertices}}
         self.photometry = {}     # {filename: {star_number: flux}}
-        
+        self.noise = {}          # {filename: {star_number: noise}}
         self.current_star = 1
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
         self.setup_plot()
@@ -70,6 +74,27 @@ class PSFPhotometry:
             filepath = os.path.join(row['Directory'], row['File'])
             self.images[row['File']] = fits.getdata(filepath)
 
+    def calc_background(self, image):
+        """"Need an estimate of background per pixel for photometry uncertainties."""
+    
+        sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+        threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
+        segment_img = detect_sources(image, threshold, npixels=10)
+        footprint = circular_footprint(radius=10)
+        mask = segment_img.make_source_mask(footprint=footprint)
+        box_size = (30, 30)
+        filter_size = (3, 3)
+        bkg_estimator = MedianBackground()
+        
+        # Estimate the 2D background of the image
+        bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
+                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
+
+        
+        
+        return np.nanmedian(bkg.background)
+        
+
     def setup_plot(self):
         """Initialize the plot with the first image."""
         first_file = self.frame_info['File'].iloc[0]
@@ -83,7 +108,8 @@ class PSFPhotometry:
         textstr = (f"File: {first_file}\n"
                   f"Object: {self.frame_info['Object'].iloc[0]}\n"
                   f"Exposure Time: {self.frame_info['Exptime'].iloc[0]} secs\n"
-                  f"Filter: {self.frame_info['Filter'].iloc[0]}")
+                  f"Filter: {self.frame_info['Filter'].iloc[0]}\n"
+                  f"Dark Current: {self.frame_info['Dark Current'].iloc[0]}")
         self.ax.text(0.02, 1.11, textstr, transform=self.ax.transAxes,
                     bbox=dict(facecolor='white', alpha=0.8),
                     verticalalignment='top')
@@ -218,7 +244,13 @@ class PSFPhotometry:
         # Compute photometry for all images
         for filename in tqdm(self.images.keys(), desc="Processing images"):
             image = self.images[filename]
+            N_dark_pp = self.frame_info.loc[self.frame_info['File'] == filename, 'Dark Current'].values[0]
+            N_R = self.frame_info.loc[self.frame_info['File'] == filename, 'Read Noise'].values[0]
+            expt = self.frame_info.loc[self.frame_info['File']==filename, 'Exptime'].values[0]
+            flat_noise = self.frame_info.loc[self.frame_info['File'] == filename, 'Flat Noise'].values[0]
+            # bkg_pp = self.calc_background(image)
             self.photometry[filename] = {}
+            self.noise[filename] = {}
             
             # Compute contours and photometry for each star
             for star_num, (x, y) in self.star_positions.items():
@@ -229,13 +261,22 @@ class PSFPhotometry:
                     img_y, img_x = np.mgrid[:image.shape[0], :image.shape[1]]
                     points = np.column_stack((img_x.ravel(), img_y.ravel()))
                     mask = Path(vertices).contains_points(points).reshape(image.shape)
-                    
+                    # print(mask.shape)
                     # Calculate flux
-                    flux = np.sum(image[mask])
+                    flux = np.sum(image[mask])*0.37/expt
+                    # Detector gain alwyas 0.37
+                    # signal_noise = 0.37 * flux
+                    bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
+                    total_noise = np.sqrt(signal_noise + bkg_noise)
+                    total_noise
+                    
+                    # noise = np.sqrt(0.37 * flux + np.sum(mask) * (1 + (np.sum(mask)) *(0.37 * (bkgd_pp + N_dark_pp) + (N_R**2)))
                     self.photometry[filename][star_num] = flux
+                    self.noise[filename][star_num] = total_noise
                 except Exception as e:
                     print(f"\nError processing star {star_num} in {filename}: {e}")
                     self.photometry[filename][star_num] = np.nan
+                    self.noise[filename][star_num] = np.nan
 
         # Create and display results DataFrame
         data = []
@@ -244,9 +285,12 @@ class PSFPhotometry:
             for star_num in self.star_positions.keys():
                 x, y = self.star_positions[star_num]
                 flux = self.photometry[filename][star_num]
+                noise = self.noise[filename][star_num]
                 row[f'Star_{star_num}_x'] = x
                 row[f'Star_{star_num}_y'] = y
                 row[f'Star_{star_num}_flux'] = flux
+                # row[f'Star_{star_num}_contour'] = self.psf_contours[filename].get(star_num, None)
+                row[f'Star_{star_num}_noise'] = noise
             data.append(row)
         
         results_df = pd.DataFrame(data)
@@ -256,43 +300,66 @@ class PSFPhotometry:
         return results_df
 
 
+
 def get_frame_info(directories):
     """
     Extracts information from FITS file headers for reduced frames.
     """
     directories_list, file_list = [], []
-    objects, dates, filters, exposure_times = [], [], [], []
-
+    objects, dates, filters, exposure_times,dark_currents,read_noise,flat_noise = [], [], [], [], [], [],[]
+    
+    # Iterate through all directories
     for directory in directories:
+        head_dir  = os.path.dirname(os.path.abspath(directory)) + '/' #Want to get dark current from uncertainties.csv in parent directory 
+        
+        # Get all FITS files in the directory
         fits_files = [f for f in os.listdir(directory) if f.endswith('.fits')]
+        uncert = pd.read_csv(head_dir + 'Uncertainties.csv', header=None,sep='\s+')
         for file in fits_files:
             try:
+                # Read the FITS header
                 header = fits.getheader(os.path.join(directory, file))
+
+                # Extract relevant header information
                 directories_list.append(directory)
                 file_list.append(file)
                 objects.append(header.get('OBJECT', 'Unknown'))
                 dates.append(header.get('DATE-OBS', 'Unknown'))
-                filters.append(header.get('FILTER', 'Unknown'))
-                exposure_times.append(header.get('EXPTIME', 'Unknown'))
+                filt = header.get('FILTER', 'Unknown')
+                filters.append(filt)
+                exp = header.get('EXPTIME', 'Unknown')
+                exposure_times.append(exp)
+                dark_currents.append(uncert.loc[uncert[0] == f'Dark_Current_{exp}s', 1].values[0])
+                read_noise.append(uncert.loc[uncert[0] == 'Read_Noise', 1].values[0])
+                flat_noise.append(uncert.loc[uncert[0] == f'Flat_{filt}_Noise', 1].values[0])
+
             except Exception as e:
                 print(f"Error processing file {file} in {directory}: {e}")
                 continue
+        
+        
     
-    return pd.DataFrame({
-        'Directory': directories_list,
-        'File': file_list,
-        'Object': objects,
-        'Date-Obs': dates,
-        'Filter': filters,
-        'Exptime': exposure_times
-    })
+        
+    # Create a DataFrame with the extracted information
+    reduced_frame_info = pd.DataFrame({'Directory': directories_list,
+                                       'File': file_list,
+                                       'Object': objects,
+                                       'Date-Obs': dates,
+                                       'Filter': filters,
+                                       'Exptime': exposure_times,
+                                       'Dark Current': dark_currents,
+                                       'Read Noise': read_noise,
+                                       'Flat Noise': flat_noise
+                                       })
+
+    return reduced_frame_info
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="PSF Photometry Tool")
     parser.add_argument('-data', '--data', type=str, nargs='+', required=True,
                        help="Directories containing reduced images")
     args = parser.parse_args()
-    
+    print(args.data)
     frame_info_df = get_frame_info(args.data)
     frame_info_df.to_csv('frame_info.csv', index=False)
     psf_photometry = PSFPhotometry(frame_info_df)
