@@ -266,9 +266,10 @@ class PSFPhotometry:
                     flux = np.sum(image[mask])*0.37/expt
                     # Detector gain alwyas 0.37
                     # signal_noise = 0.37 * flux
-                    bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
-                    total_noise = np.sqrt(signal_noise + bkg_noise)
-                    total_noise
+                    # bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
+                    # total_noise = np.sqrt(signal_noise + bkg_noise)
+                    total_noise = np.sqrt(flux+ np.sum(mask)*(N_dark_pp + N_R**2 + flat_noise**2)) # 0.37 is the detector gain
+                    # total_noise
                     
                     # noise = np.sqrt(0.37 * flux + np.sum(mask) * (1 + (np.sum(mask)) *(0.37 * (bkgd_pp + N_dark_pp) + (N_R**2)))
                     self.photometry[filename][star_num] = flux
