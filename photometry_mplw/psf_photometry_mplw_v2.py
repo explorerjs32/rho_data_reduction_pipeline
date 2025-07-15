@@ -297,7 +297,7 @@ class PSFPhotometry:
         results_df = pd.DataFrame(data)
         print("\nPhotometry Results:")
         print(results_df)
-        results_df.to_csv('psf_photometry_results.csv', index=False)
+        results_df.to_csv(path+'_psf_photometry_results.csv', index=False)
         return results_df
 
 
@@ -360,8 +360,9 @@ if __name__ == '__main__':
     parser.add_argument('-data', '--data', type=str, nargs='+', required=True,
                        help="Directories containing reduced images")
     args = parser.parse_args()
-    print(args.data)
+    path = args.data[0]
+    head_dir  = os.path.dirname(os.path.abspath(path)) + '/' 
     frame_info_df = get_frame_info(args.data)
-    frame_info_df.to_csv('frame_info.csv', index=False)
+    frame_info_df.to_csv(head_dir+'frame_info.csv', index=False)
     psf_photometry = PSFPhotometry(frame_info_df)
     plt.show()
