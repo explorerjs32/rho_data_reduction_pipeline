@@ -74,27 +74,7 @@ class PSFPhotometry:
             filepath = os.path.join(row['Directory'], row['File'])
             self.images[row['File']] = fits.getdata(filepath)
 
-    def calc_background(self, image):
-        """"Need an estimate of background per pixel for photometry uncertainties."""
-    
-        sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
-        threshold = detect_threshold(image, nsigma=2.0, sigma_clip=sigma_clip)
-        segment_img = detect_sources(image, threshold, npixels=10)
-        footprint = circular_footprint(radius=10)
-        mask = segment_img.make_source_mask(footprint=footprint)
-        box_size = (30, 30)
-        filter_size = (3, 3)
-        bkg_estimator = MedianBackground()
-        
-        # Estimate the 2D background of the image
-        bkg = Background2D(image, box_size=box_size, mask=mask, filter_size=filter_size, 
-                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
-
-        
-        
-        return np.nanmedian(bkg.background)
-        
-
+  
     def setup_plot(self):
         """Initialize the plot with the first image."""
         first_file = self.frame_info['File'].iloc[0]
@@ -109,7 +89,8 @@ class PSFPhotometry:
                   f"Object: {self.frame_info['Object'].iloc[0]}\n"
                   f"Exposure Time: {self.frame_info['Exptime'].iloc[0]} secs\n"
                   f"Filter: {self.frame_info['Filter'].iloc[0]}\n"
-                  f"Dark Current: {self.frame_info['Dark Current'].iloc[0]}")
+                #   f"Dark Current: {self.frame_info['Dark Current'].iloc[0]}"
+                  )
         self.ax.text(0.02, 1.11, textstr, transform=self.ax.transAxes,
                     bbox=dict(facecolor='white', alpha=0.8),
                     verticalalignment='top')
@@ -272,7 +253,7 @@ class PSFPhotometry:
                     # bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
                     # total_noise = np.sqrt(signal_noise + bkg_noise)
                     # total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2 + flat_noise)) # 0.37 is the detector gain
-                    total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2)) # 0.37 is the detector gain
+                    total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2))/0.37 # 0.37 is the detector gain
                     # total_noise
                     
                     # noise = np.sqrt(0.37 * flux + np.sum(mask) * (1 + (np.sum(mask)) *(0.37 * (bkgd_pp + N_dark_pp) + (N_R**2)))
@@ -287,15 +268,18 @@ class PSFPhotometry:
         data = []
         for filename in self.images.keys():
             row = {'File': filename}
+            row['Date-Obs'] = self.frame_info.loc[self.frame_info['File'] == filename, 'Date-Obs'].values[0]
             for star_num in self.star_positions.keys():
                 x, y = self.star_positions[star_num]
                 flux = self.photometry[filename][star_num]
                 noise = self.noise[filename][star_num]
+
                 row[f'Star_{star_num}_x'] = x
                 row[f'Star_{star_num}_y'] = y
                 row[f'Star_{star_num}_flux'] = flux
                 # row[f'Star_{star_num}_contour'] = self.psf_contours[filename].get(star_num, None)
                 row[f'Star_{star_num}_noise'] = noise
+            
             data.append(row)
         
         results_df = pd.DataFrame(data)
