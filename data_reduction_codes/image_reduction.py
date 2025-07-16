@@ -49,7 +49,7 @@ elif not bool(args.background_subtract):
 
 # Identify master bias frames and combine them
 log += ["Creating Master Bias...\n"]
-master_bias, master_bias_noise = create_master_bias(frame_info_df, log)
+master_bias, master_bias_noise, mean_bias_noise = create_master_bias(frame_info_df, log)
 log += ["Done!\n\n"]
 
 # Create the master darks
@@ -59,7 +59,7 @@ log += ["Done!\n\n"]
 
 # Create master flats
 log += ["Creating Master Flats...\n"]
-flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
+flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, master_bias_noise,mean_bias_noise, log)
 log += ["Done!\n\n"]
 
 print("Done creating Calibration frames\n")

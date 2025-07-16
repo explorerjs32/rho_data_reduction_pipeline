@@ -244,10 +244,13 @@ class PSFPhotometry:
         # Compute photometry for all images
         for filename in tqdm(self.images.keys(), desc="Processing images"):
             image = self.images[filename]
-            N_dark_pp = self.frame_info.loc[self.frame_info['File'] == filename, 'Dark Current'].values[0]
-            N_R = self.frame_info.loc[self.frame_info['File'] == filename, 'Read Noise'].values[0]
+            # Readnoise
+            N_R = self.frame_info.loc[self.frame_info['File'] == filename, 'Read Noise'].values[0] *0.37
+            # Dark Current per pixel
             expt = self.frame_info.loc[self.frame_info['File']==filename, 'Exptime'].values[0]
-            flat_noise = self.frame_info.loc[self.frame_info['File'] == filename, 'Flat Noise'].values[0]
+            N_dark_pp = self.frame_info.loc[self.frame_info['File'] == filename, 'Dark Current'].values[0] *0.37 *expt
+            # Flat Noise per pixel
+            flat_noise = self.frame_info.loc[self.frame_info['File'] == filename, 'Flat Noise'].values[0]*0.37
             # bkg_pp = self.calc_background(image)
             self.photometry[filename] = {}
             self.noise[filename] = {}
@@ -263,12 +266,13 @@ class PSFPhotometry:
                     mask = Path(vertices).contains_points(points).reshape(image.shape)
                     # print(mask.shape)
                     # Calculate flux
-                    flux = np.sum(image[mask])*0.37/expt
+                    flux = np.sum(image[mask])*0.37 
                     # Detector gain alwyas 0.37
                     # signal_noise = 0.37 * flux
                     # bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
                     # total_noise = np.sqrt(signal_noise + bkg_noise)
-                    total_noise = np.sqrt(flux+ np.sum(mask)*(N_dark_pp + N_R**2 + flat_noise**2)) # 0.37 is the detector gain
+                    # total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2 + flat_noise)) # 0.37 is the detector gain
+                    total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2)) # 0.37 is the detector gain
                     # total_noise
                     
                     # noise = np.sqrt(0.37 * flux + np.sum(mask) * (1 + (np.sum(mask)) *(0.37 * (bkgd_pp + N_dark_pp) + (N_R**2)))
