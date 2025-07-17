@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 # Define the arguments to parse into the script
 parser = argparse.ArgumentParser(
-    description="Arguments to parse for the data reduction pipeline. Primarily foccusing on the directories where the data is stored.")
+    description="Arguments to parse for the data reduction pipeline. Primarily focusing on the directories where the data is stored.")
 
 parser.add_argument('-l', '--light', type=str, nargs='+', required=True, help="Single or multiple directories containing light frames only")
 parser.add_argument('-d', '--dark', type=str, nargs='+', required=True, help="Single or multiple directories containing dark frames only")

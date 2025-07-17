@@ -346,7 +346,7 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
 
         # Updating flat_uncertainties dictionary
         flat_uncertainties["Flat_" + filter_name + "_Noise"] = uncertainty
-        flat_uncertainties["Flat_" + filter_name + "_Uncertainty"] = norm_flat_uncert
+        # flat_uncertainties["Flat_" + filter_name + "_Uncertainty"] = norm_flat_uncert
 
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
