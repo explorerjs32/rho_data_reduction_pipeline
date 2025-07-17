@@ -311,7 +311,7 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
 
     for filter_name in flat_filters:
         flats_filter = []
-        flats_uncert_filter = []
+       
 
         for index, row in flats_df.iterrows():
             # Get the exposure time of the flat frame
@@ -320,20 +320,23 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
             if flat_exptime in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flat_dark_sub = fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"]
                 flats_filter.append(flat_dark_sub)
-                flat_poiss_uncert = flat_dark_sub**0.5
-                flats_uncert_filter.append((flat_poiss_uncert**2+read_noise**2)**0.5) #assuming negl dark current for flat exposures
+                # flat_poiss_uncert = flat_dark_sub**0.5
+                # flats_uncert_filter.append((flat_poiss_uncert**2+read_noise**2)**0.5) #assuming negl dark current for flat exposures
                     
             # If no dark frame is available for the flat frame, subtract the master bias
             elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flat_bias_sub = fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_bias
                 flats_filter.append(flat_bias_sub)
-                flat_poiss_uncert = flat_bias_sub**0.5
-                flats_uncert_filter.append((flat_poiss_uncert**2+read_noise**2)**0.5)
+                # flat_poiss_uncert = flat_bias_sub**0.5
+                # flats_uncert_filter.append((flat_poiss_uncert**2+read_noise**2)**0.5)
 
         # Combine the flats and normalize the master flat
         master_flat = np.mean(np.array(flats_filter), axis=0)
-        flat_tot_uncert = np.mean(np.array(flats_uncert_filter), axis=0)
+        flat_poiss_uncert = (master_flat*0.37)**0.5 
+        flat_single_uncert = np.sqrt(flat_poiss_uncert**2 + read_noise**2)**0.5
+        flat_tot_uncert = ((flat_single_uncert/np.sqrt(len(flats_filter)))**2 + mean_bias_noise**2)**0.5
         normalized_master_flat = master_flat / np.median(master_flat)
+        norm_flat_uncert = flat_tot_uncert / np.median(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
         
 
@@ -343,9 +346,12 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
 
         # Updating flat_uncertainties dictionary
         flat_uncertainties["Flat_" + filter_name + "_Noise"] = uncertainty
+        flat_uncertainties["Flat_" + filter_name + "_Uncertainty"] = norm_flat_uncert
 
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
+        log += ['Flat_'+filter_name+'_uncertainty: ' + str(norm_flat_uncert) + '\n']
+        log += ['Flat_'+filter_name+'_std: ' + str(uncertainty) + '\n']
 
     return flat_filters, master_flats, flat_uncertainties
 

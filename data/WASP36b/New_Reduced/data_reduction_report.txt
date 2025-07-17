@@ -1,0 +1,715 @@
+RETRHO Data Reduction Pipeline Initiated...
+Reducing Data from /Users/bencapistrant/Documents/GitHub/rho_data_reduction_pipeline/data/WASP36b/Light/WASP-36B
+
+Objects observed: 1
+Light Frames: 67
+Dark Frames: 20
+Flat Frames: 10
+Bias Frames: 10
+
+Background Subtraction is ON
+
+Creating Master Bias...
+10 bias frames were found
+Done!
+
+Creating Master Darks...
+Master_dark_0.4s created. 10 frames were found
+Master_dark_150.0s created. 10 frames were found
+Done!
+
+Creating Master Flats...
+Master_flat_R created. 10 frames found
+Flat_R_uncertainty: [[0.00045875 0.00045876 0.00045876 ... 0.00045737 0.00045734 0.00045729]
+ [0.00045876 0.00045877 0.00045879 ... 0.00045738 0.00045736 0.00045733]
+ [0.00045877 0.00045874 0.00045874 ... 0.00045739 0.00045739 0.00045736]
+ ...
+ [0.00045753 0.00045756 0.0004576  ... 0.00045661 0.00045656 0.00045651]
+ [0.00045747 0.0004575  0.00045755 ... 0.00045654 0.00045651 0.00045648]
+ [0.00045749 0.0004575  0.00045753 ... 0.00045655 0.00045653 0.00045649]]
+Flat_R_std: 0.05305827674306574
+Done!
+
+Reducing raw light frames for WASP-36B
+
+Raw file: WASP36B.2025-02-17.0172.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0172.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0164.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0164.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0133.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0133.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0148.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0148.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0191.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0191.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0187.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0187.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0168.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0168.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0144.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0144.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0152.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0152.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0153.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0153.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0145.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0145.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0186.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0186.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0169.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0169.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0190.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0190.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0149.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0149.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0132.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0132.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0165.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0165.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0173.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0173.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0178.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0178.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0181.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0181.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0139.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0139.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0142.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0142.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0154.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0154.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0174.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0174.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0162.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0162.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0135.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0135.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0158.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0158.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0159.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0159.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0134.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0134.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0163.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0163.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0175.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0175.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0155.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0155.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0143.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0143.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0138.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0138.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0180.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0180.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0196.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0196.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0179.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0179.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0156.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0156.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0140.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0140.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0183.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0183.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0195.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0195.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0137.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0137.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0160.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0160.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0176.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0176.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0177.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0177.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0161.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0161.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0136.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0136.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0194.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0194.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0182.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0182.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0141.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0141.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0157.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0157.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0131.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0131.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0166.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0166.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0189.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0189.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0170.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0170.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0150.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0150.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0146.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0146.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0185.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0185.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0193.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0193.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0192.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0192.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0184.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0184.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0147.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0147.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0151.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0151.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0171.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0171.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0167.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0167.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0188.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0188.fits reduced!
+
+Raw file: WASP36B.2025-02-17.0130.fits
+Exposure time: 150.0 sec
+Filter: R
+Subtracted Master_dark_150.0s
+Divided normalized_master_flat_R
+Subtracted background
+Removed bad pixels
+WASP36B.2025-02-17.0130.fits reduced!
+
+
+
+Aligning images for WASP-36B
+
+
+Successfully aligned WASP36B.2025-02-17.0164.fits automatically
+Successfully aligned WASP36B.2025-02-17.0133.fits automatically
+Successfully aligned WASP36B.2025-02-17.0148.fits automatically
+Successfully aligned WASP36B.2025-02-17.0191.fits automatically
+Successfully aligned WASP36B.2025-02-17.0187.fits automatically
+Successfully aligned WASP36B.2025-02-17.0168.fits automatically
+Successfully aligned WASP36B.2025-02-17.0144.fits automatically
+Successfully aligned WASP36B.2025-02-17.0152.fits automatically
+Successfully aligned WASP36B.2025-02-17.0153.fits automatically
+Successfully aligned WASP36B.2025-02-17.0145.fits automatically
+Successfully aligned WASP36B.2025-02-17.0186.fits automatically
+Successfully aligned WASP36B.2025-02-17.0169.fits automatically
+Successfully aligned WASP36B.2025-02-17.0190.fits automatically
+Successfully aligned WASP36B.2025-02-17.0149.fits automatically
+Successfully aligned WASP36B.2025-02-17.0132.fits automatically
+Successfully aligned WASP36B.2025-02-17.0165.fits automatically
+Successfully aligned WASP36B.2025-02-17.0173.fits automatically
+Successfully aligned WASP36B.2025-02-17.0178.fits automatically
+Successfully aligned WASP36B.2025-02-17.0181.fits automatically
+Successfully aligned WASP36B.2025-02-17.0139.fits automatically
+Successfully aligned WASP36B.2025-02-17.0142.fits automatically
+Successfully aligned WASP36B.2025-02-17.0154.fits automatically
+Successfully aligned WASP36B.2025-02-17.0174.fits automatically
+Successfully aligned WASP36B.2025-02-17.0162.fits automatically
+Successfully aligned WASP36B.2025-02-17.0135.fits automatically
+Automatic alignment failed for WASP36B.2025-02-17.0158.fits, switching to manual alignment
+Image WASP36B.2025-02-17.0158.fits was ignored and will be skipped
+Successfully aligned WASP36B.2025-02-17.0159.fits automatically
+Successfully aligned WASP36B.2025-02-17.0134.fits automatically
+Successfully aligned WASP36B.2025-02-17.0163.fits automatically
+Successfully aligned WASP36B.2025-02-17.0175.fits automatically
+Successfully aligned WASP36B.2025-02-17.0155.fits automatically
+Successfully aligned WASP36B.2025-02-17.0143.fits automatically
+Successfully aligned WASP36B.2025-02-17.0138.fits automatically
+Successfully aligned WASP36B.2025-02-17.0180.fits automatically
+Successfully aligned WASP36B.2025-02-17.0196.fits automatically
+Successfully aligned WASP36B.2025-02-17.0179.fits automatically
+Successfully aligned WASP36B.2025-02-17.0156.fits automatically
+Successfully aligned WASP36B.2025-02-17.0140.fits automatically
+Successfully aligned WASP36B.2025-02-17.0183.fits automatically
+Successfully aligned WASP36B.2025-02-17.0195.fits automatically
+Automatic alignment failed for WASP36B.2025-02-17.0137.fits, switching to manual alignment
+Image WASP36B.2025-02-17.0137.fits was ignored and will be skipped
+Successfully aligned WASP36B.2025-02-17.0160.fits automatically
+Successfully aligned WASP36B.2025-02-17.0176.fits automatically
+Successfully aligned WASP36B.2025-02-17.0177.fits automatically
+Successfully aligned WASP36B.2025-02-17.0161.fits automatically
+Automatic alignment failed for WASP36B.2025-02-17.0136.fits, switching to manual alignment
+Image WASP36B.2025-02-17.0136.fits was ignored and will be skipped
+Successfully aligned WASP36B.2025-02-17.0194.fits automatically
+Successfully aligned WASP36B.2025-02-17.0182.fits automatically
+Successfully aligned WASP36B.2025-02-17.0141.fits automatically
+Automatic alignment failed for WASP36B.2025-02-17.0157.fits, switching to manual alignment
+Image WASP36B.2025-02-17.0157.fits was ignored and will be skipped
+Successfully aligned WASP36B.2025-02-17.0131.fits automatically
+Successfully aligned WASP36B.2025-02-17.0166.fits automatically
+Successfully aligned WASP36B.2025-02-17.0189.fits automatically
+Successfully aligned WASP36B.2025-02-17.0170.fits automatically
+Successfully aligned WASP36B.2025-02-17.0150.fits automatically
+Successfully aligned WASP36B.2025-02-17.0146.fits automatically
+Successfully aligned WASP36B.2025-02-17.0185.fits automatically
+Successfully aligned WASP36B.2025-02-17.0193.fits automatically
+Successfully aligned WASP36B.2025-02-17.0192.fits automatically
+Successfully aligned WASP36B.2025-02-17.0184.fits automatically
+Successfully aligned WASP36B.2025-02-17.0147.fits automatically
+Successfully aligned WASP36B.2025-02-17.0151.fits automatically
+Successfully aligned WASP36B.2025-02-17.0171.fits automatically
+Successfully aligned WASP36B.2025-02-17.0167.fits automatically
+Successfully aligned WASP36B.2025-02-17.0188.fits automatically
+Successfully aligned WASP36B.2025-02-17.0130.fits automatically
+Creating new directory...
+Finished creating files for object WASP-36B
+Saving reduced frames to /Users/bencapistrant/Documents/GitHub/rho_data_reduction_pipeline/data/WASP36b/New_Reduced/Reduced/WASP-36B

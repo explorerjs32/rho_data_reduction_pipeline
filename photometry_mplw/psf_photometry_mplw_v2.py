@@ -226,12 +226,12 @@ class PSFPhotometry:
         for filename in tqdm(self.images.keys(), desc="Processing images"):
             image = self.images[filename]
             # Readnoise
-            N_R = self.frame_info.loc[self.frame_info['File'] == filename, 'Read Noise'].values[0] *0.37
+            N_R = float(self.frame_info.loc[self.frame_info['File'] == filename, 'Read Noise'].values[0])*0.37
             # Dark Current per pixel
-            expt = self.frame_info.loc[self.frame_info['File']==filename, 'Exptime'].values[0]
-            N_dark_pp = self.frame_info.loc[self.frame_info['File'] == filename, 'Dark Current'].values[0] *0.37 *expt
+            expt = float(self.frame_info.loc[self.frame_info['File']==filename, 'Exptime'].values[0])
+            N_dark_pp = float(self.frame_info.loc[self.frame_info['File'] == filename, 'Dark Current'].values[0]) *0.37 *expt
             # Flat Noise per pixel
-            flat_noise = self.frame_info.loc[self.frame_info['File'] == filename, 'Flat Noise'].values[0]*0.37
+            flat_noise = float(self.frame_info.loc[self.frame_info['File'] == filename, 'Flat Noise'].values[0])*0.37
             # bkg_pp = self.calc_background(image)
             self.photometry[filename] = {}
             self.noise[filename] = {}
@@ -253,7 +253,7 @@ class PSFPhotometry:
                     # bkg_noise = np.sum(mask) * (0.37 * (bkg_pp +N_dark_pp) + (N_R**2))
                     # total_noise = np.sqrt(signal_noise + bkg_noise)
                     # total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2 + flat_noise)) # 0.37 is the detector gain
-                    total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2))/0.37 # 0.37 is the detector gain
+                    total_noise = np.sqrt(flux+np.sum(mask)*(N_dark_pp + N_R**2)) # 0.37 is the detector gain
                     # total_noise
                     
                     # noise = np.sqrt(0.37 * flux + np.sum(mask) * (1 + (np.sum(mask)) *(0.37 * (bkgd_pp + N_dark_pp) + (N_R**2)))
@@ -285,7 +285,8 @@ class PSFPhotometry:
         results_df = pd.DataFrame(data)
         print("\nPhotometry Results:")
         print(results_df)
-        results_df.to_csv(path+'_psf_photometry_results.csv', index=False)
+        # print(path)
+        results_df.to_csv(head_dir+'psf_photometry_results.csv', index=False)
         return results_df
 
 
@@ -351,6 +352,7 @@ if __name__ == '__main__':
     path = args.data[0]
     head_dir  = os.path.dirname(os.path.abspath(path)) + '/' 
     frame_info_df = get_frame_info(args.data)
+    print(frame_info_df)
     frame_info_df.to_csv(head_dir+'frame_info.csv', index=False)
     psf_photometry = PSFPhotometry(frame_info_df)
     plt.show()
