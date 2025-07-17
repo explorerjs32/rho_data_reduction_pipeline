@@ -80,7 +80,8 @@ class aperturePhotometry:
                     'File': [],
                     'Object': [],
                     'Date-Obs': [],
-                    'Filter': []
+                    'Filter': [],
+                    'Exptime': []
                 }) 
         self.current_index = 0
         self.image_data = None
@@ -117,6 +118,7 @@ class aperturePhotometry:
             object = row['Object']
             date_obs = row['Date-Obs']
             filter_name = row['Filter']
+            exptime = row['Exptime']
 
             file_path = os.path.join(directory, file)
 
@@ -129,7 +131,8 @@ class aperturePhotometry:
                     'File': file,
                     'Object': object,
                     'Date-Obs': date_obs,
-                    'Filter': filter_name
+                    'Filter': filter_name,
+                    'Exptime': exptime
                 }])
                 self.median_frame_info = pd.concat([self.median_frame_info, new_row], ignore_index=True)
 
@@ -526,6 +529,7 @@ class aperturePhotometry:
         radii = [a['radius'] for a in self.apertures_dict[current_index]]
 
         current_filter = self.median_frame_info['Filter'][self.current_index]
+        exptime = self.median_frame_info['Exptime'][self.current_index] #pulling the exptime for instr_mag calculations
 
         print(f"\nPerforming aperture photometry on filter: {current_filter}\n  Positions (px): {positions}\n  Radii: {radii}\n")
         
@@ -535,6 +539,13 @@ class aperturePhotometry:
             aperture = [CircularAperture(positions, r) for r in radii]
 
         phot_table = aperture_photometry(image_data, aperture)
+        aperture_sum_err = (phot_table['aperture_sum'].data)**0.5
+        phot_table['aperture_sum_err'] = aperture_sum_err
+
+        #Calculate the instrumental magnitudes
+        star_countrate = phot_table['aperture_sum'].data / exptime
+        instr_mag = -2.5 * np.log10(star_countrate)
+        phot_table['instrumental_magnitudes'] = instr_mag
 
         print(phot_table)
 
