@@ -3,151 +3,34 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
-import matplotlib.widgets as widgets
+from matplotlib.widgets import Button, RectangleSelector
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
-from astropy.visualization import ImageNormalize, ZScaleInterval, LogStretch, LinearStretch
-from photutils.detection import find_peaks
+from astropy.visualization import ImageNormalize, ZScaleInterval
 import argparse
 import os
-
-
-def get_frame_info(directories):
-    """
-    Extracts information from FITS file headers for reduced frames across multiple directories.
-    Parameters:
-    directories (list of str): List of directories containing reduced FITS frames.
-
-    Returns:
-    pandas.DataFrame: A DataFrame with the following columns:
-    - 'Directory': Directory name.
-    - 'File': File name.
-    - 'Object': Object name (header keyword 'OBJECT').
-    - 'Date-Obs': Observation date and time (header keyword 'DATE-OBS').
-    - 'Filter': Filter used (header keyword 'FILTER').
-    - 'Exptime': Exposure time in seconds (header keyword 'EXPTIME').
-    """
-    # Define lists to store extracted data
-    directories_list = []
-    file_list = []
-    objects = []
-    dates = []
-    filters = []
-    exposure_times = []
-
-    # Iterate through all directories
-    for directory in directories:
-
-        # Get all FITS files in the directory
-        fits_files = [f for f in os.listdir(directory) if f.endswith('.fits')]
-
-        for file in fits_files:
-            try:
-                # Read the FITS header
-                header = fits.getheader(os.path.join(directory, file))
-
-                # Extract relevant header information
-                directories_list.append(directory)
-                file_list.append(file)
-                objects.append(header.get('OBJECT', 'Unknown'))
-                dates.append(header.get('DATE-OBS', 'Unknown'))
-                filters.append(header.get('FILTER', 'Unknown'))
-                exposure_times.append(header.get('EXPTIME', 'Unknown'))
-
-            except Exception as e:
-                print(f"Error processing file {file} in {directory}: {e}")
-                continue
-
-    # Create a DataFrame with the extracted information
-    reduced_frame_info = pd.DataFrame({'Directory': directories_list,
-                                       'File': file_list,
-                                       'Object': objects,
-                                       'Date-Obs': dates,
-                                       'Filter': filters,
-                                       'Exptime': exposure_times})
-
-    return reduced_frame_info
+from tqdm import tqdm
+from scipy import ndimage
 
 
 class PSFPhotometry:
-    def __init__(self, frame_info_df):
+    def __init__(self, frame_info_df, uncertainties_df, gain=0.37):
         self.frame_info = frame_info_df
-        self.current_index = 0
-        self.image_data = None
-        self.fig, self.ax = plt.subplots(figsize=(8, 8))
-        self.text_box = None
-        self.text_frame_num = None
-        self.rect_selector = None
-        self.current_contour = None
-        self.current_level = None
-        self.current_vertices = None
-        self.temp_contours = []
-        self.contours_dict = {}
-        self.photometry_dict = {}
-        self.display_image()
+        self.uncertainties_df = uncertainties_df
+        self.gain = 0.37
+        self.images = {}
+        self.load_all_images()
+        
+        self.star_positions = {}  # {star_number: (x, y)}
+        self.photometry = {}     # {filename: {star_number: flux}}
+        
+        self.current_star = 1
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.setup_plot()
         self.create_widgets()
-        self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
-
-    def display_image(self):
-        """
-        Displays the current image and the frame information.
-        """
-        # Clear the axis first
-        self.ax.clear()
         
-        # Read the current FITS file
-        file_path = os.path.join(self.frame_info['Directory'][self.current_index],
-                                self.frame_info['File'][self.current_index])
-        
-        self.image_data = fits.getdata(file_path)
-        
-        # Display the image
-        image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
-        self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
-        
-        # Create the text box with rounded edges
-        textstr = (f"File: {self.frame_info['File'][self.current_index]}\n"
-                f"Object: {self.frame_info['Object'][self.current_index]}\n"
-                f"Filter: {self.frame_info['Filter'][self.current_index]}\n"
-                f"Exposure Time: {self.frame_info['Exptime'][self.current_index]} s")
-
-        props = dict(boxstyle='round', facecolor='white', alpha=0.5)
-        self.text_box = self.ax.text(0.02, 1.2, textstr, transform=self.ax.transAxes, fontsize=12,
-                                    verticalalignment='top', bbox=props)
-
-        # Add the frame number
-        self.text_frame_num = self.ax.text(0.8, 1.05, f"Frame {self.current_index + 1}/{len(self.frame_info)}", 
-                                        transform=self.ax.transAxes,
-                                        fontsize=12, verticalalignment='top')
-        
-        self.ax.axis('off')
-        
-        # Display saved contours and labels if they exist for this image
-        current_file = self.frame_info['File'][self.current_index]
-        if self.current_index in self.contours_dict:
-            for i, contour_info in enumerate(self.contours_dict[self.current_index], 1):
-                x, y, width, height = contour_info['coords']
-                vertices = contour_info['vertices']
-                
-                # Ensure the region is within image bounds
-                if (x >= 0 and y >= 0 and 
-                    x + width <= self.image_data.shape[1] and 
-                    y + height <= self.image_data.shape[0]):
-                    
-                    # Create path from vertices and add as a patch
-                    path = Path(vertices)
-                    patch = PathPatch(path, facecolor='none', edgecolor='red', 
-                                    linewidth=1, alpha=0.75)
-                    self.ax.add_patch(patch)
-                    
-                    # Add star label if photometry data exists
-                    if current_file in self.photometry_dict and i in self.photometry_dict[current_file]:
-                        measurements = self.photometry_dict[current_file][i]
-                        self.ax.text(measurements['xpeak'] - 25, measurements['ypeak'] + 25,
-                                f'Star {i}', color='red', fontsize=10,
-                                ha='center', va='bottom')
-        
-        self.fig.canvas.draw()
+        # Connect zoom event
+        self.scroll_cid = self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
 
     def zoom_image(self, event):
         """
@@ -184,273 +67,264 @@ class PSFPhotometry:
                 
             self.fig.canvas.draw_idle()
 
+    def load_all_images(self):
+        """Load all images into memory."""
+        for _, row in self.frame_info.iterrows():
+            filepath = os.path.join(row['Directory'], row['File'])
+            self.images[row['File']] = fits.getdata(filepath)
+
+    def setup_plot(self):
+        """Initialize the plot with the first image."""
+        first_file = self.frame_info['File'].iloc[0]
+        self.image_data = self.images[first_file]
+        
+        # Display the image
+        image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
+        self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
+        
+        # Add image info text box
+        textstr = (f"File: {first_file}\n"
+                  f"Object: {self.frame_info['Object'].iloc[0]}\n"
+                  f"Exposure Time: {self.frame_info['Exptime'].iloc[0]} secs\n"
+                  f"Filter: {self.frame_info['Filter'].iloc[0]}")
+        self.ax.text(0.02, 1.11, textstr, transform=self.ax.transAxes,
+                    bbox=dict(facecolor='white', alpha=0.8),
+                    verticalalignment='top')
+
+        self.ax.axis('off')
+
     def create_widgets(self):
-        """
-        Create the widgets used in the tool.
-        """
-        # Define the buttons to navigate between images
-        ax_prev = plt.axes([0.125, 0.15, 0.1, 0.05])
-        ax_next = plt.axes([0.25, 0.15, 0.1, 0.05])
-        ax_add_star = plt.axes([0.375, 0.15, 0.1, 0.05])
-        ax_perform_phot = plt.axes([0.5, 0.15, 0.15, 0.05])
-
-        self.button_prev = widgets.Button(ax_prev, 'Previous')
-        self.button_next = widgets.Button(ax_next, 'Next')
-        self.button_add_star = widgets.Button(ax_add_star, 'Add Star')
-        self.button_perform_phot = widgets.Button(ax_perform_phot, 'PSF Photometry')
-
-        self.button_prev.on_clicked(self.prev_image)
-        self.button_next.on_clicked(self.next_image)
-        self.button_add_star.on_clicked(self.add_star)
-        self.button_perform_phot.on_clicked(self.perform_photometry)
+        """Create the interface widgets."""
+        # Rectangle selector for star selection
+        self.rect_selector = RectangleSelector(
+            self.ax, self.on_select,
+            useblit=True,
+            props=dict(facecolor='red', edgecolor='red', alpha=0.2),
+            interactive=True
+        )
         
-        # Create RectangleSelector for region selection
-        self.rect_selector = widgets.RectangleSelector(self.ax, self.on_region_select, useblit=True,
-                                                       minspanx=5, minspany=5,
-                                                       spancoords='pixels', interactive=True)
+        # Done button
+        self.done_button_ax = plt.axes([0.55, 0.02, 0.25, 0.04])
+        self.done_button = Button(self.done_button_ax, 'Done with Star Selection')
+        self.done_button.on_clicked(self.finish_selection)
         
-    def on_region_select(self, eclick, erelease):
-        """
-        Callback function for the RectangleSelector widget.
-        """
-        # Get the coordinates of the selected region
+        # Initially disable button
+        self.done_button.set_active(False)
+
+    def on_select(self, eclick, erelease):
+        """Handle rectangle selection."""
+        # Check if both click and release events are within the axes
+        if eclick is None or erelease is None:
+            return
+        if eclick.xdata is None or eclick.ydata is None or erelease.xdata is None or erelease.ydata is None:
+            return
+            
         x1, y1 = int(eclick.xdata), int(eclick.ydata)
         x2, y2 = int(erelease.xdata), int(erelease.ydata)
         
-        width = abs(x2 - x1)
-        height = abs(y2 - y1)
+        # Check if the selection has a valid size
+        if abs(x2-x1) < 1 or abs(y2-y1) < 1:
+            return
         
-        # Ensure the selected region is within the bounds of the image
-        if width > 0 and height > 0 and x1 >= 0 and y1 >= 0 and x2 <= self.image_data.shape[1] and y2 <= self.image_data.shape[0]:
-            self.display_psf(x1, y1, width, height)
-
-    def display_psf(self, x, y, width, height):
-        """
-        Display temporary PSF contour on the current image while maintaining saved contours.
-        """
-        # Clear only temporary contours
-        for contour in self.temp_contours:
-            for coll in contour.collections:
-                coll.remove()
-        self.temp_contours = []
+        # Extract region and find peak
+        region = self.image_data[
+            min(y1,y2):max(y1,y2),
+            min(x1,x2):max(x1,x2)
+        ]
         
-        # Extract the selected region
-        sub_image = self.image_data[y:y+height, x:x+width]
+        # Check if region is not empty
+        if region.size == 0:
+            return
+            
+        local_y, local_x = np.unravel_index(np.argmax(region), region.shape)
         
-        # Calculate stats for the selected region
-        mean, median, std = sigma_clipped_stats(sub_image, sigma=3.0, maxiters=5)
-        contour_level = mean + 10*std
+        # Calculate absolute peak position
+        peak_x = min(x1,x2) + local_x
+        peak_y = min(y1,y2) + local_y
         
-        # Create a contour plot of the PSF
-        contour = self.ax.contour(sub_image, levels=[contour_level], colors='red', 
-                                linewidths=1, alpha=0.75, extent=(x, x+width, y, y+height))
+        # Store star position
+        self.star_positions[self.current_star] = (peak_x, peak_y)
         
-        # Get the contour path vertices
-        path = contour.collections[0].get_paths()[0]
-        vertices = path.vertices
+        # Plot marker and label
+        self.ax.plot(peak_x, peak_y, 'rx', markersize=10)
+        self.ax.text(peak_x + 15, peak_y + 15, f'Star {self.current_star}',
+                    color='red', fontsize=12)
         
-        # Store temporary contour and its data
-        self.temp_contours.append(contour)
-        self.current_contour = contour
-        self.current_level = contour_level
-        self.current_vertices = vertices
-        
-        # Redisplay saved contours for current image
-        if self.current_index in self.contours_dict:
-            for contour_info in self.contours_dict[self.current_index]:
-                x_saved, y_saved, width_saved, height_saved = contour_info['coords']
-                vertices_saved = contour_info['vertices']
-                
-                # Create path from saved vertices and add as a patch
-                path = Path(vertices_saved)
-                patch = PathPatch(path, facecolor='none', edgecolor='red', 
-                                linewidth=1, alpha=0.75)
-                self.ax.add_patch(patch)
-        
+        self.current_star += 1
         self.fig.canvas.draw_idle()
-
-    def clear_temp_contours(self):
-        """
-        Clear temporary contours from the current image.
-        """
-        for contour in self.temp_contours:
-            for coll in contour.collections:
-                coll.remove()
-        self.temp_contours = []
-        self.current_contour = None
-
-    def add_star(self, event):
-        """
-        Save the current contour information and initial photometry measurements.
-        """
-        if self.current_contour is not None and self.temp_contours:
-            # Get the coordinates from the current contour's extent
-            extent = self.current_contour.collections[0].get_paths()[0].get_extents()
-            x = int(extent.x0)
-            y = int(extent.y0)
-            width = int(extent.x1 - extent.x0)
-            height = int(extent.y1 - extent.y0)
-            
-            # Get current file name
-            current_file = self.frame_info['File'][self.current_index]
-            
-            # Initialize the dictionaries if they don't exist
-            if self.current_index not in self.contours_dict:
-                self.contours_dict[self.current_index] = []
-            if current_file not in self.photometry_dict:
-                self.photometry_dict[current_file] = {}
-            
-            # Get the star number (1-based indexing)
-            star_number = len(self.contours_dict[self.current_index]) + 1
-            
-            # Extract the region and find the peak
-            region = self.image_data[y:y+height, x:x+width]
-            max_counts = np.max(region)
-            peak_y, peak_x = np.unravel_index(np.argmax(region), region.shape)
-            
-            # Calculate absolute peak position
-            abs_peak_x = x + peak_x
-            abs_peak_y = y + peak_y
-            
-            # Save contour information
-            contour_info = {
-                'coords': (x, y, width, height),
-                'level': self.current_level,
-                'vertices': self.current_vertices
-            }
-            self.contours_dict[self.current_index].append(contour_info)
-            
-            # Save initial photometry measurements
-            self.photometry_dict[current_file][star_number] = {
-                'xpeak': abs_peak_x,
-                'ypeak': abs_peak_y,
-                'peak_counts': max_counts
-            }
-            
-            # Add star label
-            self.ax.text(abs_peak_x - 25, abs_peak_y + 25, f'Star {star_number}', 
-                        color='red', fontsize=10, ha='center', va='bottom')
-            self.fig.canvas.draw_idle()
-
-    def perform_photometry(self, event):
-        """
-        Perform PSF photometry on all marked stars in the current image.
-        """
-        current_file = self.frame_info['File'][self.current_index]
         
-        if current_file in self.photometry_dict:
-            for star_number, star_data in self.photometry_dict[current_file].items():
-                # Get the contour information for this star
-                contour_info = self.contours_dict[self.current_index][star_number - 1]
-                x, y, width, height = contour_info['coords']
-                
-                # Extract the region
-                region = self.image_data[y:y+height, x:x+width]
-                
-                # Calculate the sum flux (total counts within the contour)
-                mask = Path(contour_info['vertices']).contains_points(
-                    [(i, j) for i in range(x, x+width) for j in range(y, y+height)]
-                ).reshape(height, width)
-                
-                sum_flux = np.sum(region[mask])
-                sum_flux_err = np.sqrt(sum_flux)  # Assuming Poisson statistics
-                
-                # Update the photometry dictionary with flux measurements
-                self.photometry_dict[current_file][star_number].update({
-                    'sum_flux': sum_flux,
-                    'sum_flux_err': sum_flux_err
-                })
+        # Enable done button when at least one star is selected
+        self.done_button.set_active(True)
+
+    def finish_selection(self, event):
+        """Complete star selection and close the figure."""
+        plt.close(self.fig)
+        self.compute_all_photometry()
+
+    def compute_all_photometry(self):
+        """Compute photometry for all images and display results."""
+        print("\nComputing photometry for all images...")
         
-    def create_composite_dataframe(self):
-        """
-        Create a pandas DataFrame containing photometry measurements from all processed images.
-        """
+        # Compute photometry for all images
+        for filename in tqdm(self.images.keys(), desc="Processing images"):
+            image = self.images[filename]
+            self.photometry[filename] = {}
+            
+            # Get image metadata from frame_info
+            frame_row = self.frame_info[self.frame_info['File'] == filename].iloc[0]
+            exptime = frame_row['Exptime']
+            filter_ = frame_row['Filter']
+            
+            # Compute photometry for each star
+            for star_num, (x, y) in self.star_positions.items():
+                # Extract region around star
+                size = 40
+                half_size = size // 2
+                star_cutout = image[
+                    max(0, y-half_size):min(image.shape[0], y+half_size),
+                    max(0, x-half_size):min(image.shape[1], x+half_size)
+                ]
+                
+                # Calculate statistics and threshold
+                mean, median, std = sigma_clipped_stats(star_cutout, sigma=3.0)
+                threshold = median + 3.0 * std
+                
+                # Create initial mask of pixels above threshold
+                bright_pixels = star_cutout > threshold
+                
+                # Label connected regions
+                labeled_regions, num_regions = ndimage.label(bright_pixels)
+                
+                # Define center coordinates in cutout
+                center_y, center_x = half_size, half_size
+                
+                # Find region containing center
+                center_region = labeled_regions[center_y, center_x]
+                
+                # If center is not in bright region, find nearest one
+                if center_region == 0:
+                    y_grid, x_grid = np.ogrid[:star_cutout.shape[0], :star_cutout.shape[1]]
+                    distance = np.sqrt((x_grid - center_x)**2 + (y_grid - center_y)**2)
+                    bright_positions = np.where(bright_pixels)
+                    
+                    if len(bright_positions[0]) > 0:
+                        dist_to_bright = distance[bright_positions]
+                        closest_idx = np.argmin(dist_to_bright)
+                        center_region = labeled_regions[bright_positions[0][closest_idx],
+                                                    bright_positions[1][closest_idx]]
+                
+                # Create mask for central region
+                final_mask = labeled_regions == center_region
+                
+                # Calculate flux and store results
+                flux_out = np.sum(star_cutout[final_mask]) * self.gain
+                self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
+                
+                # Calculate uncertainties
+                read_noise = self.uncertainties_df.loc['Read_Noise', 'Values']
+                dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Values']
+                flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Values']
+                
+                # Calculate flux uncertainty
+                flux_noise = np.sqrt(
+                    flux_out +  # Shot noise
+                    (final_mask.sum() * dark_current * self.gain * exptime) +  # Dark current noise
+                    (flat_noise * self.gain) +  # Flat field noise
+                    (read_noise * self.gain)**2  # Read noise
+                )
+                self.photometry[filename][f"Flux_err_Star_{star_num}"] = flux_noise
+                
+                # Calculate instrumental magnitude and error
+                minst = -2.5 * np.log10(flux_out/exptime)
+                minst_err = (2.5 / np.log(10)) * (flux_noise / flux_out)
+                
+                self.photometry[filename][f"Minst_Star_{star_num}"] = minst
+                self.photometry[filename][f"Minst_err_Star_{star_num}"] = minst_err
+                
+                # Store coordinates
+                self.photometry[filename][f"Star_{star_num}_x"] = x
+                self.photometry[filename][f"Star_{star_num}_y"] = y
+
+        # Create results DataFrame
         data = []
-        for file_name in self.photometry_dict.keys():
-            # Get corresponding frame info
-            frame_info_row = self.frame_info[self.frame_info['File'] == file_name].iloc[0]
-            
-            for star_number, measurements in self.photometry_dict[file_name].items():
-                measurements_copy = measurements.copy()
-                measurements_copy['star_number'] = star_number
-                measurements_copy['file'] = file_name
-                # Add additional information from frame_info
-                measurements_copy['Date-Obs'] = frame_info_row['Date-Obs']
-                measurements_copy['Exptime'] = frame_info_row['Exptime']
-                measurements_copy['Filter'] = frame_info_row['Filter']
-                data.append(measurements_copy)
+        for filename in self.images.keys():
+            row = {'File': filename}
+            row.update(self.photometry[filename])
+            data.append(row)
         
-        if data:
-            df = pd.DataFrame(data)
-            # Reorder columns to put file, date, filter, exptime, and star_number first
-            cols = ['file', 'Date-Obs', 'Filter', 'Exptime', 'star_number'] + \
-                [col for col in df.columns if col not in ['file', 'Date-Obs', 'Filter', 'Exptime', 'star_number']]
-            df = df[cols]
-            return df
-        return None
-
-    def next_image(self, event):
-        """
-        Move to the next image in the list.
-        """
-        if self.current_index < len(self.frame_info) - 1:
-            # Display composite photometry data including all processed images
-            composite_df = self.create_composite_dataframe()
-            if composite_df is not None:
-                print("\nComposite Photometry Measurements:")
-                print(composite_df.to_string(index=False))
-                print("\n" + "="*50 + "\n")  # Separator line
-            
-            self.clear_temp_contours()  # Clear temporary contours
-            self.current_index += 1
-            self.display_image()
-            self.update_button_status()
-            self.ax.set_xlim(0, self.image_data.shape[1])
-            self.ax.set_ylim(0, self.image_data.shape[0])
-            self.fig.canvas.draw_idle()
-
-    def prev_image(self, event):
-        """
-        Move to the previous image in the list.
-        """
-        if self.current_index > 0:
-            self.clear_temp_contours()  # Clear temporary contours
-            self.current_index -= 1
-            self.display_image()
-            self.update_button_status()
-            self.ax.set_xlim(0, self.image_data.shape[1])
-            self.ax.set_ylim(0, self.image_data.shape[0])
-            self.fig.canvas.draw_idle()
-
-    def update_button_status(self):
-        """
-        Update the button status based on the current image index.
-        """
-        if self.current_index == 0:
-            self.button_prev.set_active(False)
-            
-        else:
-            self.button_prev.set_active(True)
+        results_df = pd.DataFrame(data)
+        print("\nPhotometry Results:")
+        print(results_df)
         
-        if self.current_index == len(self.frame_info) - 1:
-            self.button_next.set_active(False)
-            
-        else:
-            self.button_next.set_active(True)
+        return results_df
 
+
+def get_frame_info(directory):
+    """
+    Extracts information from FITS file headers for reduced frames.
+    """
+    directories_list, file_list = [], []
+    objects, dates, filters, exposure_times = [], [], [], []
+
+    fits_files = [f for f in os.listdir(directory) if f.endswith('.fits')]
+
+    for file in fits_files:
+        try:
+            header = fits.getheader(os.path.join(directory, file))
+            directories_list.append(directory)
+            file_list.append(file)
+            objects.append(header.get('OBJECT', 'Unknown'))
+            dates.append(header.get('DATE-OBS', 'Unknown'))
+            filters.append(header.get('FILTER', 'Unknown'))
+            exposure_times.append(header.get('EXPTIME', 'Unknown'))
+        except Exception as e:
+            print(f"Error processing file {file} in {directory}: {e}")
+            continue
+
+    return pd.DataFrame({
+        'Directory': directories_list,
+        'File': file_list,
+        'Object': objects,
+        'Date-Obs': dates,
+        'Filter': filters,
+        'Exptime': exposure_times
+    })
 
 if __name__ == '__main__':
-    # Define the arguments to parse into the script
-    parser = argparse.ArgumentParser(description="Arguments to parse for the PSF photometry pipeline. Primarily focusing on the directories where the data is stored.")
-    
-    parser.add_argument('-data', '--data', type=str, nargs='+', required=True, help="Single or multiple directories containing reduced images.")
-    
+    parser = argparse.ArgumentParser(description="PSF Photometry Tool")
+    parser.add_argument('-d', '--data', type=str, required=True,
+                       help="Directories containing reduced images")
+    parser.add_argument('-u', '--uncertainties', type=str, required=True,
+                       help="Path to uncertainties CSV file")
     args = parser.parse_args()
     
-    # Get the frame inofrmation from the reduced images
+    # Read frame info and uncertainties
     frame_info_df = get_frame_info(args.data)
-    
-    # Initialize the PSFPhotometry class
-    psf_photometry = PSFPhotometry(frame_info_df)
-    
+    uncertainties_df = pd.read_csv(args.uncertainties, sep=' ', names=['id','Values'], index_col=0)
+
+    # Verify all images are of the same object
+    unique_objects = frame_info_df['Object'].unique()
+    if len(unique_objects) > 1:
+        print("Warning: Multiple objects found in the data directories:")
+        for obj in unique_objects:
+            print(f"  - {obj}")
+        print("Please ensure all images are of the same object.")
+        exit(1)
+
+    # Get object name for file naming
+    object_name = frame_info_df['Object'].iloc[0]
+
+    # Run photometry
+    psf_photometry = PSFPhotometry(frame_info_df, uncertainties_df)
     plt.show()
+
+    # After window is closed, results are computed automatically
+    # Create output directory if it doesn't exist
+    output_dir = os.path.join(args.data, 'PSF_Photometry_Results/')
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save the results
+    output_file = os.path.join(output_dir, f"{object_name}_psf_photometry.csv")
+    results_df = psf_photometry.compute_all_photometry()
+    results_df.to_csv(output_file, index=False)
+    print(f"\nResults saved to: {output_file}")
