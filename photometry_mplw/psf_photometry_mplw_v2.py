@@ -352,7 +352,7 @@ if __name__ == '__main__':
     path = args.data[0]
     head_dir  = os.path.dirname(os.path.abspath(path)) + '/' 
     frame_info_df = get_frame_info(args.data)
-    print(frame_info_df)
+    # print(frame_info_df)
     frame_info_df.to_csv(head_dir+'frame_info.csv', index=False)
     psf_photometry = PSFPhotometry(frame_info_df)
     plt.show()
