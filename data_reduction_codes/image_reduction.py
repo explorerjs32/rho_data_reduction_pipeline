@@ -54,12 +54,12 @@ log += ["Done!\n\n"]
 
 # Create the master darks
 log += ["Creating Master Darks...\n"]
-dark_times, master_darks, uncertainties_dark_current = create_master_darks(frame_info_df, master_bias_noise, log)
+dark_times, master_darks, uncertainties_dark_current = create_master_darks(frame_info_df, master_bias, log)
 log += ["Done!\n\n"]
 
 # Create master flats
 log += ["Creating Master Flats...\n"]
-flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, log)
+flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, master_bias_noise, uncertainties_dark_current, log)
 log += ["Done!\n\n"]
 
 print("Done creating Calibration frames\n")
@@ -77,7 +77,7 @@ output_dir = os.path.join(args.output, 'Reduced')
 os.makedirs(output_dir, exist_ok=True)
 
 # Create fits images and extract the information on reduced frames
-reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log)
+reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict)
 print("Done with the data reduction. See final report on " + output_dir)
 
 # Transferring log list of strings to the txt file
@@ -85,15 +85,3 @@ logfile = open(output_dir + "/data_reduction_report.txt", "a")
 for line in log:
     logfile.write(line)
 logfile.close()
-
-# Saving data of normalized flat, bias noise, and dark current
-uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
-uncertainties.extend(uncertainties_dark_current.items())  # Dark current rows
-uncertainties.extend(flats_uncertainty_dict.items())  # Flat noise rows
-
-df = pd.DataFrame(uncertainties)
-csv_path = os.path.join(output_dir, 'Uncertainties.csv')
-df.to_csv(csv_path, index=False, header=False, sep=" ")  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
-
-# Saving the information on reduced frames
-reduced_frames_df.to_csv(os.path.join(output_dir, 'Reduced_Frames_info.csv'), index=False, sep=" ")  # 'sep=" "' ensures space separation isntead of comma, quoting=3 ensures no quotes around the strings
