@@ -7,9 +7,14 @@ from matplotlib.lines import Line2D
 import matplotlib.widgets as widgets
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
+from astropy.wcs import WCS
+from astropy import units as u
+from astroquery.vizier import Vizier
+from astropy.table import Table, vstack, conf, Column
 from astropy.visualization import ImageNormalize, ZScaleInterval, LogStretch, LinearStretch
 from photutils.detection import find_peaks
 from photutils.aperture import CircularAperture, aperture_photometry
+import glob
 import argparse
 import os
 
@@ -38,11 +43,21 @@ def get_frame_info(directories):
     filters = []
     exposure_times = []
 
+    #Defining global variable
+    global wcs_file
+    global wcs
     # Iterate through all directories
     for directory in directories:
 
+        #Obtaining wcs file within directory
+        wcs_file = os.path.join(directory, 'wcs.fits')
+
+        #Acquiring wcs information
+        wcs_file_header = fits.open(wcs_file)[0].header
+        wcs = WCS(wcs_file_header)
+
         # Get all FITS files in the directory
-        fits_files = [f for f in os.listdir(directory) if f.endswith('.fits')]
+        fits_files = [f for f in os.listdir(directory) if f.endswith('.fits') and f != 'wcs.fits']
 
         for file in fits_files:
             try:
@@ -237,7 +252,7 @@ class aperturePhotometry:
         ax_next = plt.axes([0.25, 0.15, 0.1, 0.05])
         ax_add_object = plt.axes([0.375, 0.15, 0.1, 0.05])
         ax_perform_phot = plt.axes([0.5, 0.15, 0.15, 0.05])
-
+  
         self.button_prev = widgets.Button(ax_prev, 'Previous')
         self.button_next = widgets.Button(ax_next, 'Next')
         self.button_add_object = widgets.Button(ax_add_object, 'Add Object')
@@ -246,8 +261,7 @@ class aperturePhotometry:
         self.button_prev.on_clicked(self.prev_image)
         self.button_next.on_clicked(self.next_image)
         self.button_add_object.on_clicked(lambda event: self.add_aperture(self.current_xpeak, self.current_ypeak))
-        self.button_perform_phot.on_clicked(self.perform_aperture_photometry)
-        
+        self.button_perform_phot.on_clicked(lambda event: (self.perform_aperture_photometry(event), self.magnitude_measurements(event)))
         # Add axes for radius adjustment buttons
         ax_increase_radius = plt.axes([0.675, 0.15, 0.05, 0.05])
         ax_decrease_radius = plt.axes([0.75, 0.15, 0.05, 0.05])
@@ -514,9 +528,10 @@ class aperturePhotometry:
                         'xpeak': peak_data['xpeak'],
                         'ypeak': peak_data['ypeak']}
 
-    def perform_aperture_photometry(self, event):
+    def old_perform_aperture_photometry(self, event):
         """
-        Perform aperture photometry on all marked objects in current image
+        Perform aperture photometry on all marked objects in current image and calculate instrumental and apparent magnitudes.
+        Old version, soon to be removed.
         """
         current_index = self.current_index
 
@@ -546,42 +561,217 @@ class aperturePhotometry:
         star_countrate = phot_table['aperture_sum'].data / exptime
         instr_mag = -2.5 * np.log10(star_countrate)
         phot_table['instrumental_magnitudes'] = instr_mag
+        phot_table['Filter'] = current_filter
+        """
+        Calculating the zeropoint and apparent magnitudes
+        """
+        star_coords = wcs.pixel_to_world(phot_table['xcenter'], phot_table['ycenter'])
+        # Correlating filter to specific magnitude column to receive the specific magnitude
+        filter_to_column = {
+            'B': 'Bmag',
+            'g': 'gmag',
+            'r': 'rmag',
+            'i': 'imag'
+        }
+        mag_column = filter_to_column.get(current_filter)
+        
+        #Utilizing Vizier to obtain magnitudes of the stars to the corresponding filter
+        mag_for_stars_viz = [None] * len(star_coords)
+        for idx in range(len(star_coords)):
+             viz_result = Vizier.query_region(star_coords[idx], radius=2*u.arcsec, catalog='I/322A/out')
+             if mag_column in viz_result[0].colnames:
+                mag_for_stars_viz[idx] = viz_result[0][mag_column]
+             else:
+                   mag_for_stars_viz[idx] = None
 
-        print(phot_table)
+        #Creating calibration table for zeropoint magnitude calculations
+        cal_table = Table([phot_table['id'], phot_table['aperture_sum'], phot_table['aperture_sum_err'], star_coords.ra.deg, star_coords.dec.deg,
+            mag_for_stars_viz, instr_mag],
+            names=['Star Number', 'Flux', 'Uncertainty', 'RA', 'Dec', mag_column, 'Instr Mag'])
+        
+        #Calculation for zeropoint and apparent magnitudes
+        zeropoint_measurements = []
+        apparent_measurements = []
+        apparent_measurements_err = []
+        
+        for row in cal_table:
+            mag = row[mag_column]
+            mag_instr = row['Instr Mag']
+            zeropoint = mag - mag_instr
+            ap_mag = mag_instr + zeropoint
+            ap_mag_err= 1.09 * row['Uncertainty']/row['Flux']
+            zeropoint_measurements.append(zeropoint)
+            apparent_measurements.append(ap_mag)
+            apparent_measurements_err.append(ap_mag_err)
 
+        #Calculating zeropoint uncertainty
+        avg_zp, std_zp = np.mean(zeropoint_measurements),np.std(zeropoint_measurements)
+        
+        #Saving measurements into table
+        phot_table['Zeropoint_mag'] = zeropoint_measurements
+        phot_table['Zeropoint_mag_err'] = std_zp
+        phot_table['Apparent_mag'] = apparent_measurements
+        phot_table['Apparent_mag_err'] = apparent_measurements_err
+        
 
-    def perform_photometry(self, event):
+    def perform_aperture_photometry(self, event):
+        """ 
+        Perform aperture photometry for all frames
         """
 
-                                Soon to be removed.
+        results = []
+        for num_of_image, (file, directory,filter) in enumerate(zip(self.median_frame_info['File'], 
+                                                                              self.median_frame_info['Directory'],
+                                                                              self.median_frame_info['Filter'])):
+           data = fits.getdata(os.path.join(directory, file))
 
-        Perform PSF photometry on all marked stars in the current image.
+           
+           positions = [a['center'] for a in self.apertures_dict[num_of_image]]
+           radii = [a['radius'] for a in self.apertures_dict[num_of_image]]
+
+           if len(set(radii)) == 1: # if the list of radii has only one unique value, pass it as a single value
+               aperture = CircularAperture(positions, r=radii[0])
+               aperture_table = aperture_photometry(data, aperture)
+               aperture_table['radius'] = radii[0]
+               aperture_table['filter'] = filter
+               aperture_table['aperture_sum_err'] = (aperture_table['aperture_sum'].data)**0.5
+               results.append(aperture_table)
+           else:
+               for r in radii:
+                   aperture = CircularAperture(positions, r)
+                   aperture_table = aperture_photometry(data, aperture)
+                   aperture_table['radius'] = Column([r]*len(aperture_table))
+                   aperture_table['filter'] = filter
+                   aperture_table['aperture_sum_err'] = (aperture_table['aperture_sum'].data)**0.5
+                   results.append(aperture_table)
+               
+
+
+        
+           #aperture_table = aperture_photometry(data, aperture)
+           #aperture_table['filter'] = filter
+           #aperture_sum_err = (aperture_table['aperture_sum'].data)**0.5
+           #aperture_table['aperture_sum_err'] = aperture_sum_err
+
+           #results.append(aperture_table)
+        
+
+        #Converting to pandas DataFrame and pivoting for easier analysis
+        all_results = vstack(results)
+        conf.max_rows = None
+
+        df = all_results.to_pandas()
+        photometry_df = df.pivot(
+        index='id',  # Keep star index
+        columns=['filter'],
+        values=['aperture_sum', 'aperture_sum_err']
+        )
+
+        photometry_df.columns = [f"{val}_{filt}" for val, filt in photometry_df.columns]
+        photometry_df['xcenter'] = df.groupby('id')['xcenter'].first()
+        photometry_df['ycenter'] = df.groupby('id')['ycenter'].first()
+        photometry_df['radius'] = df.groupby('id')['radius'].first()
+
+        # Get list of unique filters
+        filters = sorted({f.split('_')[-1] for f in photometry_df.columns if f.startswith('aperture_sum')})
+
+        # Build a new column order: aperture_sum then aperture_sum_err for each filter
+        new_order = []
+        for filt in filters:
+            new_order.append(f"aperture_sum_{filt}")
+            new_order.append(f"aperture_sum_err_{filt}")
+        new_order.extend(['xcenter', 'ycenter', 'radius'])  # Add xcenter, ycenter, and radius at the end
+
+        # Reorder the columns
+        photometry_df = photometry_df[new_order]
+        self.photometry_df = photometry_df
+
+    def magnitude_measurements(self,event):
         """
-        current_file = self.median_frame_info['File'][self.current_index]
+        Conducting magnitude calculations
         
-        if current_file in self.photometry_dict:
-            for star_number, star_data in self.photometry_dict[current_file].items():
-                # Get the contour information for this star
-                contour_info = self.contours_dict[self.current_index][star_number - 1]
-                x, y, width, height = contour_info['coords']
+        """
+        exptime_dict = {filt: exptime for filt, exptime in zip(self.median_frame_info['Filter'],
+                                                       self.median_frame_info['Exptime'])}
+
+        filters = sorted({f.split('_')[-1] for f in self.photometry_df.columns if f.startswith('aperture_sum')})
+
+
+        rows = []
+
+        for index, row in self.photometry_df.iterrows():
+
+            # Getting the star coordinates and setting up empty list for magnitudes from Vizier
+            star_coords = wcs.pixel_to_world(self.photometry_df['xcenter'], self.photometry_df['ycenter'])
+            mag_for_stars_viz = [None] * len(star_coords)
+
+            #Adding RA and Dec to the dataframe
+            self.photometry_df['Ra'] = star_coords.ra.deg
+            self.photometry_df['Dec'] = star_coords.dec.deg
+
+            # Setting up filter to column dictionary for zeropoint calculations
+            filter_to_column = {
+                'B': 'Bmag',
+                'G': "g'mag",
+                'R': "r'mag",
+                'I': "i'mag",
+            }
+            
+            # Loop through each filter to calculate instrumental and acquire magnitudes from Vizier
+            for filt in filters:
+                aper_sum = row[f"aperture_sum_{filt}"]
+                aper_sum_err = row[f"aperture_sum_err_{filt}"]
+                # Convert to instrumental magnitudes
+                star_countrate = aper_sum/ exptime_dict[filt]
+                instr_mag = -2.5 * np.log10(star_countrate)
+                instr_mag_err = 1.0857 * aper_sum_err / star_countrate  # Propagate error
+
+                # Store the results
+                self.photometry_df.at[index, f"instr_mag_{filt}"] = instr_mag
+                self.photometry_df.at[index, f"instr_mag_err_{filt}"] = instr_mag_err
+
+                #Utilizing Vizier to obtain magnitudes of the stars to the corresponding filter
+                mag_column = filter_to_column.get(filt)
+                for idx in range(len(star_coords)):
+                    viz_result = Vizier.query_region(star_coords[idx], radius=5*u.arcsec, catalog='II/336')
+                    if mag_column in viz_result[0].colnames:
+                        mag = viz_result[0][mag_column][0]  # Get the first entry's magnitude
+                        self.photometry_df.at[index, f'zeropoint_mag_{filt}'] = mag - instr_mag
+                    else:
+                        self.photometry_df.at[index, f'zeropoint_mag_{filt}'] = None
+
+                #Calculating the uncertainty in the zeropoint magnitude
+                zp_values = self.photometry_df[f'zeropoint_mag_{filt}'].values
+                zp_clean = [z for z in zp_values if z is not None and not np.isnan(z)] # Remove None and NaN values
+                if len(zp_clean) > 1:
+                    zeropoint_uncertainty = np.std(zp_clean)
+                else:
+                    zeropoint_uncertainty = np.nan
+                self.photometry_df[f'zeropoint_mag_err_{filt}'] = zeropoint_uncertainty
                 
-                # Extract the region
-                region = self.image_data[y:y+height, x:x+width]
-                
-                # Calculate the sum flux (total counts within the contour)
-                mask = Path(contour_info['vertices']).contains_points(
-                    [(i, j) for i in range(x, x+width) for j in range(y, y+height)]
-                ).reshape(height, width)
-                
-                sum_flux = np.sum(region[mask])
-                sum_flux_err = np.sqrt(sum_flux)  # Assuming Poisson statistics
-                
-                # Update the photometry dictionary with flux measurements
-                self.photometry_dict[current_file][star_number].update({
-                    'sum_flux': sum_flux,
-                    'sum_flux_err': sum_flux_err
-                })
-        
+                #Calculating the apparent magnitudes
+                self.photometry_df[f"apparent_mag_{filt}"] = instr_mag + self.photometry_df[f'zeropoint_mag_{filt}']
+                self.photometry_df[f"apparent_mag_err_{filt}"] = (instr_mag_err**2 + zeropoint_uncertainty**2)**0.5
+
+        #Reordering columns in dataframe
+        base_columns = ['xcenter', 'ycenter', 'Ra', 'Dec', 'radius']
+        for filt in filters:
+            base_columns.extend([
+                f"aperture_sum_{filt}",
+                f"aperture_sum_err_{filt}",
+                f"instr_mag_{filt}",
+                f"instr_mag_err_{filt}",
+                f"zeropoint_mag_{filt}",
+                f"zeropoint_mag_err_{filt}",
+                f"apparent_mag_{filt}",
+                f"apparent_mag_err_{filt}"
+            ])
+        self.photometry_df = self.photometry_df[base_columns]
+
+        print("\nFinal Photometry DataFrame:")
+        print(self.photometry_df)
+
+
     def create_composite_dataframe(self):
         """
 
@@ -590,17 +780,16 @@ class aperturePhotometry:
         Create a pandas DataFrame containing photometry measurements from all processed images.
         """
         data = []
-        for file_name in self.photometry_dict.keys():
-            # Get corresponding frame info
-            median_frame_info_row = self.median_frame_info[self.median_frame_info['File'] == file_name].iloc[0]
-            
-            for star_number, measurements in self.photometry_dict[file_name].items():
-                measurements_copy = measurements.copy()
-                measurements_copy['star_number'] = star_number
-                measurements_copy['file'] = file_name
-                # Add additional information from median_frame_info
-                measurements_copy['Date-Obs'] = median_frame_info_row['Date-Obs']
-                measurements_copy['Filter'] = median_frame_info_row['Filter']
+        for index, row in self.median_frame_info.iterrows():
+            file_name = row['File']
+            if file_name in self.photometry_dict:
+                for star_number, measurements in self.photometry_dict[file_name].items():
+                    measurements_copy = measurements.copy()
+                    measurements_copy['star_number'] = star_number
+                    measurements_copy['file'] = file_name
+                    # Add additional information from median_frame_info
+                    measurements_copy['Date-Obs'] = row['Date-Obs']
+                    measurements_copy['Filter'] = row['Filter']
                 data.append(measurements_copy)
         
         if data:
@@ -683,10 +872,22 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    # Get the frame inofrmation from the reduced images
+    # Get the frame information from the reduced images
     median_frame_info_df = get_frame_info(args.data)
     
     # Initialize the aperturePhotometry class
     aperture_photometry_class = aperturePhotometry(median_frame_info_df)
     
     plt.show()
+
+    # Get object name for file naming
+    object_name = median_frame_info_df['Object'].iloc[0]
+
+    # Create output directory if it doesn't exist
+    output_dir = os.path.join(args.data[0], 'Aperture_Photometry_Results')
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save the photometry DataFrame to a CSV file
+    output_file = os.path.join(output_dir, f'{object_name}_aperture_photometry.csv')
+    aperture_photometry_class.photometry_df.to_csv(output_file, index_label='Star_Number')
+    print(f"\nAperture photometry results saved to {output_file}\n")
