@@ -17,7 +17,7 @@ class PSFPhotometry:
     def __init__(self, frame_info_df, uncertainties_df, gain=0.37):
         self.frame_info = frame_info_df
         self.uncertainties_df = uncertainties_df
-        self.gain = 0.37
+        self.gain = 0.
         self.images = {}
         self.load_all_images()
         
@@ -70,8 +70,12 @@ class PSFPhotometry:
     def load_all_images(self):
         """Load all images into memory."""
         for _, row in self.frame_info.iterrows():
+            # Extract the image data
             filepath = os.path.join(row['Directory'], row['File'])
             self.images[row['File']] = fits.getdata(filepath)
+
+            # Get the gain of the detector from the FITS header
+            self.gain = fits.getheader(filepath).get('GAIN', self.gain)
 
     def setup_plot(self):
         """Initialize the plot with the first image."""
@@ -215,22 +219,26 @@ class PSFPhotometry:
                 
                 # Create mask for central region
                 final_mask = labeled_regions == center_region
-                
+
+                # Calculate uncertainties
+                read_noise = self.uncertainties_df.loc['Read_Noise', 'Value']
+                dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Value']
+                flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Value']
+                gain = self.gain
+                npix = final_mask.sum()
+
                 # Calculate flux and store results
-                flux_out = np.sum(star_cutout[final_mask]) * self.gain
+                flux_out = np.sum(star_cutout[final_mask]) * gain
                 self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
                 
-                # Calculate uncertainties
-                read_noise = self.uncertainties_df.loc['Read_Noise', 'Values']
-                dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Values']
-                flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Values']
                 
+                                
                 # Calculate flux uncertainty
                 flux_noise = np.sqrt(
-                    flux_out +  # Shot noise
-                    (final_mask.sum() * dark_current * self.gain * exptime) +  # Dark current noise
-                    (flat_noise * self.gain) +  # Flat field noise
-                    (read_noise * self.gain)**2  # Read noise
+                    (flux_out * gain) + # Shot noise
+                    (npix * dark_current * gain) +  # Dark current noise
+                    (npix * flat_noise * gain) +  # Flat field noise
+                    (npix * (read_noise * gain)**2)  # Read noise
                 )
                 self.photometry[filename][f"Flux_err_Star_{star_num}"] = flux_noise
                 
@@ -259,49 +267,24 @@ class PSFPhotometry:
         return results_df
 
 
-def get_frame_info(directory):
-    """
-    Extracts information from FITS file headers for reduced frames.
-    """
-    directories_list, file_list = [], []
-    objects, dates, filters, exposure_times = [], [], [], []
-
-    fits_files = [f for f in os.listdir(directory) if f.endswith('.fits')]
-
-    for file in fits_files:
-        try:
-            header = fits.getheader(os.path.join(directory, file))
-            directories_list.append(directory)
-            file_list.append(file)
-            objects.append(header.get('OBJECT', 'Unknown'))
-            dates.append(header.get('DATE-OBS', 'Unknown'))
-            filters.append(header.get('FILTER', 'Unknown'))
-            exposure_times.append(header.get('EXPTIME', 'Unknown'))
-        except Exception as e:
-            print(f"Error processing file {file} in {directory}: {e}")
-            continue
-
-    return pd.DataFrame({
-        'Directory': directories_list,
-        'File': file_list,
-        'Object': objects,
-        'Date-Obs': dates,
-        'Filter': filters,
-        'Exptime': exposure_times
-    })
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="PSF Photometry Tool")
     parser.add_argument('-d', '--data', type=str, required=True,
                        help="Directories containing reduced images")
-    parser.add_argument('-u', '--uncertainties', type=str, required=True,
-                       help="Path to uncertainties CSV file")
-    args = parser.parse_args()
     
-    # Read frame info and uncertainties
-    frame_info_df = get_frame_info(args.data)
-    uncertainties_df = pd.read_csv(args.uncertainties, sep=' ', names=['id','Values'], index_col=0)
+    args = parser.parse_args()
 
+    # Get the path to the frame information dataframe and the uncertainties file
+    frame_info_file = os.path.join(args.data, 'frame_info.csv')
+    uncertainties_file = os.path.join(args.data, 'uncertainties.csv')
+
+    # Read in the frame info and uncertainties
+    frame_info_df = pd.read_csv(frame_info_file, sep=' ')
+    uncertainties_df = pd.read_csv(uncertainties_file, sep=' ', names=['id', 'Value'], index_col=0)
+
+    # Add the directory to the frame info dataframe
+    frame_info_df['Directory'] = [args.data] * frame_info_df['File'].size
+    
     # Verify all images are of the same object
     unique_objects = frame_info_df['Object'].unique()
     if len(unique_objects) > 1:
