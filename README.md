@@ -2,6 +2,8 @@
 
 Welcome to the RETRHO data reduction pipeline repository! Here, you will find the necesary tools to automatically callibrate and reduce your scientific images collected at the Rosemary Hill Observatory (RHO).
 
+### Most Recent Version: September 3rd, 2025
+
 **NOTE:** The data reduction team at RETRHO is currently working on the developement of new interactive features to do photometric calculations using the reduced data. Stay tuned.
 
 ## Features
@@ -13,7 +15,7 @@ Welcome to the RETRHO data reduction pipeline repository! Here, you will find th
     * Reduce light frames using the corresponding master dark and normalized master flat
     * Remove bad/hot pixels
     * Subtract sky background (*optional feature*)
-    * Align the reduced images
+    * Align the reduced images (See the documentation on how to use the interactive alignment tool [here](./data_reduction_codes/image_alignment_instructions.md))
 * Generates a detailed data reduction log and outlines all the image reduction steps for every input file.
 
 ## Dependencies
