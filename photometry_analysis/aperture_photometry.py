@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -86,8 +87,158 @@ def get_frame_info(directories):
 
     return reduced_frame_info
 
+class MedianImageSelector:
+    def __init__(self, frame_info_df):
+        self.frame_info = frame_info_df
+        self.median_frame_info = pd.DataFrame({ # Initializing empty DataFrame for median frame info
+                    'Directory': [],
+                    'File': [],
+                    'Object': [],
+                    'Date-Obs': [],
+                    'Filter': [],
+                    'Exptime': []
+                }) 
+        self.image_data = None
+        self.median_combined_images = {}
+        self.selected_filter = None
+        self.filtered_images_dict = {}
+        self.median_combined_images = {}
+        self.parse_filter_data()
+        self.median_combine()
+        
+        #Designing the layout of the image display
+        n_images = len(self.median_combined_images)
+        n_cols = 2
+        n_rows = math.ceil(n_images / n_cols)
+        self.fig, self.axes = plt.subplots(n_rows, n_cols, figsize=(7, 4 * n_rows))
+        self.fig.subplots_adjust(
+            hspace=0.10,  # reduce vertical spacing between rows
+            wspace=0.1,   # reduce horizontal spacing between columns
+            bottom=0.15   # leave space at bottom for buttons
+        )
+        self.axes = self.axes.flatten()  # makes iteration easier
+        
+        self.display_images()
+        self.create_widgets()
+        self.selected_images = {}
+        self.selected_filters = set()
+        self.filter_names = list(self.median_combined_images.keys())
+    
+    def parse_filter_data(self):
+        """
+        Separates the light frames by filters for median combination.
+        """
+        for index, row in self.frame_info.iterrows():
+            directory = row['Directory']
+            file = row['File']
+            object = row['Object']
+            date_obs = row['Date-Obs']
+            filter_name = row['Filter']
+            exptime = row['Exptime']
+
+            file_path = os.path.join(directory, file)
+
+            # If the filter key doesn't exist in the dictionary, create an empty list for it
+            if filter_name not in self.filtered_images_dict:
+                self.filtered_images_dict[filter_name] = []
+                # Appending the file information to the median_frame_info DataFrame
+                new_row = pd.DataFrame([{
+                    'Directory': directory,
+                    'File': file,
+                    'Object': object,
+                    'Date-Obs': date_obs,
+                    'Filter': filter_name,
+                    'Exptime': exptime
+                }])
+                self.median_frame_info = pd.concat([self.median_frame_info, new_row], ignore_index=True)
+
+            # Add the file pixel data to the list corresponding to its filter
+            try:
+                with fits.open(file_path) as hdul:
+                    file_data = hdul[0].data.astype(float)
+                    self.filtered_images_dict[filter_name].append(file_data)
+            except Exception as e:
+                print(f"Error reading file {file} for filter {filter_name}: {e}")
+
+        #pdb.set_trace()
+        #print(self.median_frame_info)
+
+        # print("Finished populating filtered_images_dict.")
+        # for filter, files in self.filtered_images_dict.items():
+        #     print(f"  {filter}: {len(files)} files")
+
+    def median_combine(self):
+        """
+        Combines images of the same filter using median combination.
+        """
+        
+        for filter, file_data in self.filtered_images_dict.items():
+            self.median_combined_images[filter] = np.median(file_data, axis=0)
+
+        #print(f"Median combination complete for {len(self.median_combined_images)} filters.")
+    def display_images(self):
+            """
+            Displays all median combined images
+            """
+            for ax, (filter_name, image_data) in zip(self.axes, self.median_combined_images.items()):
+                norm = ImageNormalize(image_data, interval=ZScaleInterval())
+                ax.imshow(image_data, origin='lower', cmap='gray', norm=norm)
+                ax.set_title(filter_name)
+                ax.axis('off')
+
+            # Hide any unused subplots (if filters < total subplots)
+            for ax in self.axes[len(self.median_combined_images):]:
+                ax.axis('off')
+
+
+    def create_widgets(self):
+        # Create a small axes for checkboxes
+        check_ax = plt.axes([0.125, 0.08, 0.08, 0.1])  # adjust position as needed
+        labels = list(self.median_combined_images.keys())
+        visibility = [False] * len(labels)
+        self.check = widgets.CheckButtons(check_ax, labels, visibility)
+        self.check.on_clicked(self.on_check)
+        #Define the done button to save image selection
+        ax_done = plt.axes([0.25, 0.10, 0.1, 0.05])
+        self.done_button = widgets.Button(ax_done, 'Done')
+        self.done_button.on_clicked(self.save_selected_image)
+
+    def on_check(self, label):
+        """Handle checkbox selection."""
+        if label in self.selected_filters:
+            self.selected_filters.remove(label)
+        else:
+            self.selected_filters.add(label)
+            
+
+        # Highlight selections
+        for ax, filter_name in zip(self.axes.flat, self.filter_names):
+            color = 'yellow' if filter_name in self.selected_filters else 'black'
+            lw = 3 if filter_name in self.selected_filters else 1
+            for spine in ax.spines.values():
+                spine.set_edgecolor(color)
+                spine.set_linewidth(lw)
+
+        self.fig.canvas.draw_idle()
+
+    def save_selected_image(self, event):
+        """Save the selected image."""
+        if not self.selected_filters:
+            print("No image selected!")
+            return
+
+        self.selected_images = {
+            f: self.median_combined_images[f] for f in self.selected_filters
+        }
+
+        print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
+        plt.close(self.fig)
+
 
 class aperturePhotometry:
+    """
+    Needs to be modified
+    """
     def __init__(self, frame_info_df):
         self.frame_info = frame_info_df
         self.median_frame_info = pd.DataFrame({ # Initializing empty DataFrame for median frame info
@@ -875,8 +1026,10 @@ if __name__ == '__main__':
     # Get the frame information from the reduced images
     median_frame_info_df = get_frame_info(args.data)
     
+    #Initialize the medianselectedImages class
+    median_selected_images_class = MedianImageSelector(median_frame_info_df)
     # Initialize the aperturePhotometry class
-    aperture_photometry_class = aperturePhotometry(median_frame_info_df)
+    #aperture_photometry_class = aperturePhotometry(median_frame_info_df)
     
     plt.show()
 
@@ -884,10 +1037,10 @@ if __name__ == '__main__':
     object_name = median_frame_info_df['Object'].iloc[0]
 
     # Create output directory if it doesn't exist
-    output_dir = os.path.join(args.data[0], 'Aperture_Photometry_Results')
-    os.makedirs(output_dir, exist_ok=True)
+    #output_dir = os.path.join(args.data[0], 'Aperture_Photometry_Results')
+    #os.makedirs(output_dir, exist_ok=True)
 
     # Save the photometry DataFrame to a CSV file
-    output_file = os.path.join(output_dir, f'{object_name}_aperture_photometry.csv')
-    aperture_photometry_class.photometry_df.to_csv(output_file, index_label='Star_Number')
-    print(f"\nAperture photometry results saved to {output_file}\n")
+    #output_file = os.path.join(output_dir, f'{object_name}_aperture_photometry.csv')
+    #aperture_photometry_class.photometry_df.to_csv(output_file, index_label='Star_Number')
+    #print(f"\nAperture photometry results saved to {output_file}\n")
