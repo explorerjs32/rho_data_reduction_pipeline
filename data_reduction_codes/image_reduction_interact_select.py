@@ -15,12 +15,13 @@ from tqdm.auto import tqdm
 import tkinter as tk
 from tkinter import filedialog, messagebox, BooleanVar
 
-"""
+""" 
 An interactive selection tool for the image reduction step of the pipeline. 
 Functionally the exact same as image_reduction.py, but rather than manually inputting directories in the command line, 
 a UI appears to select the path of each frame type and specify the desired output directory for your reduced frames. 
 A check box is included to toggle the optional background subtraction reduction step. 
-Requires tkinter package. 
+
+Does require running on individual objects, as of now.
 
 - Note: For usage after having run sort_observations.py"""
 class DirectorySelectorApp:
