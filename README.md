@@ -103,7 +103,7 @@ You can also run this script by parsing in light frames for more than one object
 #### Experimental Interactive Image Reduction
 After the raw images have been classified into their different sub-directories. You can run the script `image_reduction_interact_select.py` . This script can also be found in the `./data_reduction/` directory of this repository.
 
-This script functionally operates the same as `image_reduction.py` described above, but rather than manually specifying the directories, a GUI window will appear, allowing you to interactively select the paths to the calibration and object frames. There currently is no feature for incorporating multiple directories, so this version of the script will need to be re-run for each individual object. *Look for updates for inputting multiple directories soon*
+This script functionally operates the same as `image_reduction.py` described above, but rather than manually specifying the directory paths, a GUI window will appear, allowing you to interactively select the paths within your finder or file explorer to the calibration and object frames. There is currently an option to add additional light frame directories for reducing multiple objects with the same calibration data. *Look for updates for inputting multiple directories for darks and flats soon*
 
 The notes related to the existing raw image reduction functions apply to this script as well. 
 

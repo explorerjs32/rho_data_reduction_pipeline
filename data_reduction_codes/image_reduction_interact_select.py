@@ -30,38 +30,70 @@ class DirectorySelectorApp:
         self.master.title("Data Reduction Setup")
 
         self.light_dir = tk.StringVar()
+        self.additional_light_dirs = []  # List to store additional light frame directories
         self.dark_dir = tk.StringVar()
         self.flat_dir = tk.StringVar()
         self.bias_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.background_subtract = BooleanVar(value=True)
+        
+        # Store widget references for repositioning
+        self.dark_widgets = []
+        self.flat_widgets = []
+        self.bias_widgets = []
+        self.output_widgets = []
+        self.add_button = None
+        self.bg_checkbox = None
+        self.submit_button = None
+        
+        self.current_row = 0
 
         # Add buttons and labels
-        self.create_directory_selector("Light Frames", self.light_dir, 0)
-        self.create_directory_selector("Dark Frames", self.dark_dir, 1)
-        self.create_directory_selector("Flat Frames", self.flat_dir, 2)
-        self.create_directory_selector("Bias Frames", self.bias_dir, 3)
-        self.create_directory_selector("Output Directory", self.output_dir, 4)
+        self.create_directory_selector("Light Frames", self.light_dir, self.current_row)
+        self.current_row += 1
+        
+        # Add button for additional light frames
+        self.add_button = tk.Button(master, text="+ Add Another Light Directory", command=self.add_light_directory)
+        self.add_button.grid(row=self.current_row, column=0, columnspan=2, pady=5)
+        self.additional_light_row = self.current_row
+        self.current_row += 1
+        
+        self.dark_widgets = self.create_directory_selector("Dark Frames", self.dark_dir, self.current_row)
+        self.current_row += 1
+        self.flat_widgets = self.create_directory_selector("Flat Frames", self.flat_dir, self.current_row)
+        self.current_row += 1
+        self.bias_widgets = self.create_directory_selector("Bias Frames", self.bias_dir, self.current_row)
+        self.current_row += 1
+        self.output_widgets = self.create_directory_selector("Output Directory", self.output_dir, self.current_row)
+        self.current_row += 1
 
         # Background subtract checkbox
-        tk.Checkbutton(master, text="Background Subtraction", variable=self.background_subtract).grid(row=5, column=0, sticky='w', padx=10, pady=10)
+        self.bg_checkbox = tk.Checkbutton(master, text="Background Subtraction", variable=self.background_subtract)
+        self.bg_checkbox.grid(row=self.current_row, column=0, sticky='w', padx=10, pady=10)
+        self.current_row += 1
 
         # Submit button
-        tk.Button(master, text="Submit", command=self.submit).grid(row=6, column=0, columnspan=2, pady=10)
+        self.submit_button = tk.Button(master, text="Submit", command=self.submit)
+        self.submit_button.grid(row=self.current_row, column=0, columnspan=2, pady=10)
 
     # def create_directory_selector(self, label, var, row):
     #     tk.Label(self.master, text=label).grid(row=row, column=0, sticky='w', padx=10, pady=5)
     #     tk.Button(self.master, text="Select", command=lambda: self.select_directory(var, label)).grid(row=row, column=1, padx=10, pady=5)
 
     def create_directory_selector(self, label, var, row):
-        tk.Label(self.master, text=label).grid(row=row, column=0, sticky='w', padx=10, pady=5)
+        label_widget = tk.Label(self.master, text=label)
+        label_widget.grid(row=row, column=0, sticky='w', padx=10, pady=5)
 
         # Status label to confirm selection
         status_label = tk.Label(self.master, text="Not selected", fg="red")
         status_label.grid(row=row, column=2, sticky='w', padx=10)
 
         # Pass label to update after directory selection
-        tk.Button(self.master, text="Select", command=lambda: self.select_directory(var, label, status_label)).grid(row=row, column=1, padx=10, pady=5)
+        button_widget = tk.Button(self.master, text="Select", command=lambda: self.select_directory(var, label, status_label))
+        button_widget.grid(row=row, column=1, padx=10, pady=5)
+        
+        # Return widget references for later repositioning
+        return [label_widget, button_widget, status_label]
 
     def select_directory(self, var, label, status_label):
     
@@ -76,6 +108,66 @@ class DirectorySelectorApp:
             print(f"{label} selected: {directory}")
         else:
             status_label.config(text="Not selected", fg="red")
+
+    def add_light_directory(self):
+        """Add an additional light frame directory"""
+        # Create a new StringVar for the additional directory
+        new_light_var = tk.StringVar()
+        
+        # Insert the new row after the add button
+        insert_row = self.additional_light_row + len(self.additional_light_dirs) + 1
+        
+        # Create label and button for the additional light directory
+        label_widget = tk.Label(self.master, text=f"Light Frames {len(self.additional_light_dirs) + 2}")
+        label_widget.grid(row=insert_row, column=0, sticky='w', padx=10, pady=5)
+        
+        # Status label
+        status_label = tk.Label(self.master, text="Not selected", fg="red")
+        status_label.grid(row=insert_row, column=2, sticky='w', padx=10)
+        
+        # Select button
+        button_widget = tk.Button(self.master, text="Select", command=lambda: self.select_directory(new_light_var, f"Additional Light Frames {len(self.additional_light_dirs) + 2}", status_label))
+        button_widget.grid(row=insert_row, column=1, padx=10, pady=5)
+        
+        # Store the StringVar, status label, and widgets
+        self.additional_light_dirs.append((new_light_var, status_label, [label_widget, button_widget, status_label]))
+        
+        # Reposition all widgets below the inserted row
+        self.reposition_widgets()
+        
+    def reposition_widgets(self):
+        """Reposition all widgets after adding a new light directory"""
+        # Calculate the new row for the add button
+        add_button_row = self.additional_light_row + len(self.additional_light_dirs) + 1
+        self.add_button.grid(row=add_button_row, column=0, columnspan=2, pady=5)
+        
+        # Reposition dark, flat, bias, output widgets
+        dark_row = add_button_row + 1
+        for widget in self.dark_widgets:
+            widget.grid(row=dark_row)
+            
+        flat_row = dark_row + 1
+        for widget in self.flat_widgets:
+            widget.grid(row=flat_row)
+            
+        bias_row = flat_row + 1
+        for widget in self.bias_widgets:
+            widget.grid(row=bias_row)
+            
+        output_row = bias_row + 1
+        for widget in self.output_widgets:
+            widget.grid(row=output_row)
+            
+        # Reposition background checkbox
+        bg_row = output_row + 1
+        self.bg_checkbox.grid(row=bg_row)
+        
+        # Reposition submit button
+        submit_row = bg_row + 1
+        self.submit_button.grid(row=submit_row)
+        
+        # Update current_row
+        self.current_row = submit_row
 
     # def select_directory(self, var, label):
     #     # directory = filedialog.askdirectory(title=f"Select {label}")
@@ -93,7 +185,13 @@ class DirectorySelectorApp:
         if not self.dark_dir.get(): missing.append("Dark")
         if not self.flat_dir.get(): missing.append("Flat")
         if not self.bias_dir.get(): missing.append("Bias")
-        if not self.output_dir.get(): missing.append("Output")
+        
+        # If output directory is not selected, use parent directory of light directory
+        if not self.output_dir.get():
+            parent_dir = os.path.dirname(self.light_dir.get())
+            parenter_dir = os.path.dirname(parent_dir)
+            self.output_dir.set(parenter_dir)
+            print(f"Output directory not selected. Using parent directory: {parent_dir}")
 
         if missing:
             messagebox.showerror("Missing Directories", f"Please select: {', '.join(missing)}")
@@ -103,8 +201,14 @@ class DirectorySelectorApp:
         self.master.destroy()
 
     def get_args(self):
+        # Collect all light directories (main + additional)
+        all_light_dirs = [self.light_dir.get()]
+        for light_var, status_label, widgets in self.additional_light_dirs:
+            if light_var.get():  # Only add if a directory was actually selected
+                all_light_dirs.append(light_var.get())
+        
         return {
-            "light": [self.light_dir.get()],
+            "light": all_light_dirs,
             "dark": [self.dark_dir.get()],
             "flat": [self.flat_dir.get()],
             "bias": [self.bias_dir.get()],
