@@ -212,12 +212,12 @@ def create_master_bias(frame_info_df, log):
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
-    noise=np.std(biases_data, axis = 0) 
-    master_bias_noise=np.median(noise)
+    noise = np.std(biases_data, axis = 0) 
+    master_bias_noise = np.mean(noise)
    
     return master_bias, master_bias_noise
 
-def create_master_darks(frame_info_df, master_bias_noise, log):
+def create_master_darks(frame_info_df, master_bias, log):
     """
     Creates a list of master darks from the information in the two dataframes.
 
@@ -254,16 +254,16 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
 
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
-        # Removing noise from dark frames to get the dark current
+        # Removing read noise from dark frames to get the dark current
         darks_exp_array = np.array(darks_exp)
-        darks_list = darks_exp_array - master_bias_noise
+        debiased_dark_frames = darks_exp_array - master_bias
 
         # Taking median twice from the bias subtracted darks
-        debiased_master_dark = np.median(darks_list, axis=0)
+        debiased_master_dark_stddev = np.std(debiased_dark_frames, axis=0)
 
         # Updating dictionary entry for dark current
-        uncertainty = np.median(debiased_master_dark) / exp
-        dark_uncertainties["Dark_Current_" + str(exp) + "s"] = uncertainty
+        dark_current = np.mean(debiased_master_dark_stddev) / np.sqrt(debiased_dark_frames.size)
+        dark_uncertainties["Dark_Current_" + str(exp) + "s"] = dark_current
 
         # Logging master darks created
         log += ["Master_dark_" + str(exp) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
@@ -271,7 +271,7 @@ def create_master_darks(frame_info_df, master_bias_noise, log):
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks, dark_uncertainties
 
-def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, log):
+def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, read_noise, dark_currents, log):
     """
      Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
@@ -317,20 +317,31 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
             if flat_exptime in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flats_filter.append(
                     fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
+                
+                # Get the dark current out
+                dark_current = dark_currents[f"Dark_Current_{flat_exptime}s"]
 
             elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flats_filter.append(fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_bias)
+                dark_current = 0.
 
         # Combine the flats and normalize the master flat
         master_flat = np.mean(np.array(flats_filter), axis=0)
-        normalized_master_flat = master_flat / np.median(master_flat)
+        normalized_master_flat = master_flat / np.mean(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
-        # Calculating uncertainty of flats
-        uncertainty = np.std(normalized_master_flat)
+        # Calculate the photon noise of the master flat
+        flat_photon_noise = np.mean(master_flat**0.5)
+
+        # Compute the total and average flat noise
+        total_flat_noise = ((read_noise**2.) + (dark_current**2.) + (flat_photon_noise**2.))
+        average_flat_uncertainty = total_flat_noise / np.sqrt(np.array(flats_filter).size)
+
+        # Compute the normalized flat filed uncertainty
+        norm_flat_field_noise = average_flat_uncertainty / np.mean(master_flat)
 
         # Updating flat_uncertainties dictionary
-        flat_uncertainties["Flat_" + filter_name + "_Noise"] = uncertainty
+        flat_uncertainties["Flat_" + filter_name + "_Noise"] = norm_flat_field_noise
 
         # Logging Master flat creation
         log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
@@ -632,19 +643,23 @@ def align_images(master_reduced_data, log):
 
     return master_aligned_images
 
-def create_fits(frame_info_df, master_aligned_images, output_dir, log):
+def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
-    associated with the original raw image. The data for each image  and headers are combined into a new fits file
-    that is saved to the new directory. It then returns to the original directory.
+    associated with the original raw image. The data for each image and headers are combined into a new fits file
+    that is saved to the new directory. Additionally saves object-specific uncertainties and frame info.
 
     Args:
-        data_dir: args.data, the directory with the data in it
-        aligned_images: the list of aligned images
+        frame_info_df: DataFrame containing information about all frames
+        master_aligned_images: Dictionary of aligned images organized by object
+        output_dir: Directory where the reduced data will be saved
         log: List of strings containing logging to be added to the log txt file
+        master_bias_noise: Read noise from the master bias
+        uncertainties_dark_current: Dictionary of dark current uncertainties
+        flats_uncertainty_dict: Dictionary of flat field uncertainties
 
     Returns:
-        True (it completed)
+        reduced_frames_info: DataFrame containing information about all reduced frames
     '''
 
     # Define a dataframe to save the information of the reduced images
@@ -674,6 +689,15 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
         aligned_images = master_aligned_images[object]
         file_names = list(aligned_images.keys())
 
+        # Collect object-specific data for frame info and uncertainties
+        object_fnames = []
+        object_RAs = []
+        object_DECs = []
+        object_exptimes = []
+        object_filters = []
+        object_unique_exptimes = set()
+        object_unique_filters = set()
+
         for file in tqdm(file_names, desc=f"Saving final images for {object}", unit=' frames',
                         dynamic_ncols=True):
             # Define the full path to where the respective aligned file is stored
@@ -683,8 +707,20 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
             # For each frame in the raw, get the header
             raw_header = fits.getheader(file_path)
 
-            # Append the information into the lists
-            fnames.append(file[:-5] + "_reduced.fits")
+            # Collect frame information for this object
+            reduced_filename = file[:-5] + "_reduced.fits"
+            object_fnames.append(reduced_filename)
+            object_RAs.append(raw_header['RA'])
+            object_DECs.append(raw_header['DEC'])
+            object_exptimes.append(raw_header['EXPTIME'])
+            object_filters.append(raw_header['FILTER'])
+            
+            # Track unique exposure times and filters for this object
+            object_unique_exptimes.add(raw_header['EXPTIME'])
+            object_unique_filters.add(raw_header['FILTER'])
+
+            # Append the information to the global lists
+            fnames.append(reduced_filename)
             object_names.append(object)
             RAs.append(raw_header['RA'])
             DECs.append(raw_header['DEC'])
@@ -697,15 +733,54 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log):
             # Modify or remove the FWHM card from the header
             if 'FWHM' in hdu.header:
                 del hdu.header['FWHM']
-            
+
+            # If it doesn't exist, add the GAIN to the header
+            if 'GAIN' not in hdu.header:
+                hdu.header['GAIN'] = (0.37, 'Gain of the detector [e-/ADU]')
+
             # Create new file name "object.time.reduced.fits"
             file_name = file[:-5] + "_reduced.fits"
 
             # Write to the dir
             hdu.writeto(os.path.join(final_dir, file_name))
 
+        # Create object-specific uncertainties file
+        object_uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
+        
+        # Add dark current uncertainties for exposure times used by this object
+        for exptime in object_unique_exptimes:
+            dark_key = f"Dark_Current_{exptime}s"
+            if dark_key in uncertainties_dark_current:
+                object_uncertainties.append((dark_key, uncertainties_dark_current[dark_key]))
+        
+        # Add flat field uncertainties for filters used by this object
+        for filter_name in object_unique_filters:
+            flat_key = f"Flat_{filter_name}_Noise"
+            if flat_key in flats_uncertainty_dict:
+                object_uncertainties.append((flat_key, flats_uncertainty_dict[flat_key]))
+
+        # Save object-specific uncertainties
+        uncertainties_df = pd.DataFrame(object_uncertainties)
+        uncertainties_path = os.path.join(final_dir, 'uncertainties.csv')
+        uncertainties_df.to_csv(uncertainties_path, index=False, header=False, sep=" ")
+
+        # Create object-specific frame info DataFrame
+        object_frame_info = pd.DataFrame({
+            "File": object_fnames,
+            "Object": [object] * len(object_fnames),
+            "RA": object_RAs,
+            "DEC": object_DECs,
+            "Exptime": object_exptimes,
+            "Filter": object_filters
+        })
+
+        # Save object-specific frame info
+        frame_info_path = os.path.join(final_dir, 'frame_info.csv')
+        object_frame_info.to_csv(frame_info_path, index=False, sep=" ")
+
         log += ["Finished creating files for object " + object + "\n"]
-        log += [f"Saving reduced frames to {final_dir}"]
+        log += [f"Saving reduced frames to {final_dir}\n"]
+        log += [f"Saved uncertainties.csv and frame_info.csv to {final_dir}\n"]
 
     # Add the lists into the datafrme
     reduced_frames_info["File"] = fnames

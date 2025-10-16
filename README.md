@@ -2,7 +2,11 @@
 
 Welcome to the RETRHO data reduction pipeline repository! Here, you will find the necesary tools to automatically callibrate and reduce your scientific images collected at the Rosemary Hill Observatory (RHO).
 
+<<<<<<< HEAD
 ### Most Recent Version: June 18, 2025
+=======
+### Most Recent Version: September 3rd, 2025
+>>>>>>> main
 
 **NOTE:** The data reduction team at RETRHO is currently working on the developement of new interactive features to do photometric calculations using the reduced data. Stay tuned.
 
@@ -53,7 +57,7 @@ For git users you can clone the repository by typing on your terminal/command pr
 The data reduction process is divided in two different steps: (1) sorting raw observations, and (2) reducing raw images for one or more objects. Thw codes to complete these steps can be found in `./data_reduction_codes/`. Let's look at what scripts to run and how to run them to complete these steps.
 
 #### Sorting Raw Images
-Once you have downloaded the raw images from RHO, you can parse in the data directory to into the `sort_observations.py` script. This script takes in a single argument called `--dir`, which should point to the directory that has the raw images. 
+Once you have downloaded the raw images from RHO, you can parse in the data directory to into the `sort_observations.py` script. This script takes in a single argument called `--dir` or `-d` for short, which should point to the directory that has the raw images. 
 
 You can run the script as follows:
 

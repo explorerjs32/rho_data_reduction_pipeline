@@ -3,29 +3,62 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
-from matplotlib.widgets import Button, RectangleSelector
+from matplotlib.widgets import Button, RectangleSelector, RadioButtons, CheckButtons, Slider, AxesWidget
+import matplotlib.gridspec as gridspec
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from astropy.visualization import ImageNormalize, ZScaleInterval
+from astropy.time import Time
+from astropy.coordinates import SkyCoord, EarthLocation
+import astropy.units as u
 import argparse
 import os
 from tqdm import tqdm
 from scipy import ndimage
+from PyQt5.QtWidgets import QApplication
+import sys
 
 
-class PSFPhotometry:
-    def __init__(self, frame_info_df, uncertainties_df, gain=0.37):
+class Compute_PSF_Photometry:
+    def __init__(self, frame_info_df, uncertainties_df):
         self.frame_info = frame_info_df
         self.uncertainties_df = uncertainties_df
         self.gain = 0.
         self.images = {}
         self.load_all_images()
-        
         self.star_positions = {}  # {star_number: (x, y)}
-        self.photometry = {}     # {filename: {star_number: flux}}
+        self.photometry = {}      # {filename: {star_number: flux}
+        self.results_df = None
         
         self.current_star = 1
-        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        
+        # Get screen dimensions using Qt
+        app = QApplication.instance() or QApplication(sys.argv)
+        screen = app.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        screen_height = screen_geometry.height()
+        screen_width = screen_geometry.width()
+
+        # Calculate figure size to match screen height (with some padding)
+        dpi = 100.0  # matplotlib default DPI
+        height_inches = (screen_height * 0.85) / dpi  # 85% of screen height
+        width_inches = height_inches * 1.0  # 1:1 aspect ratio for photometry tool
+        
+        # Close any existing figures
+        plt.close('all')
+        
+        # Create the figure with calculated size
+        self.fig = plt.figure(num='PSF Photometry Tool', figsize=(width_inches, height_inches))
+        self.ax = self.fig.add_subplot(111)
+        
+        # Position window at the center of the screen
+        manager = plt.get_current_fig_manager()
+        if hasattr(manager, 'window'):
+            window = manager.window
+            x = (screen_width - window.width()) // 2
+            y = (screen_height - window.height()) // 2
+            window.move(x, y)
+        
         self.setup_plot()
         self.create_widgets()
         
@@ -91,7 +124,7 @@ class PSFPhotometry:
                   f"Object: {self.frame_info['Object'].iloc[0]}\n"
                   f"Exposure Time: {self.frame_info['Exptime'].iloc[0]} secs\n"
                   f"Filter: {self.frame_info['Filter'].iloc[0]}")
-        self.ax.text(0.02, 1.11, textstr, transform=self.ax.transAxes,
+        self.ax.text(0.02, 1.15, textstr, transform=self.ax.transAxes,
                     bbox=dict(facecolor='white', alpha=0.8),
                     verticalalignment='top')
 
@@ -108,7 +141,7 @@ class PSFPhotometry:
         )
         
         # Done button
-        self.done_button_ax = plt.axes([0.55, 0.02, 0.25, 0.04])
+        self.done_button_ax = plt.axes([0.13, 0.15, 0.25, 0.04])
         self.done_button = Button(self.done_button_ax, 'Done with Star Selection')
         self.done_button.on_clicked(self.finish_selection)
         
@@ -163,7 +196,7 @@ class PSFPhotometry:
     def finish_selection(self, event):
         """Complete star selection and close the figure."""
         plt.close(self.fig)
-        self.compute_all_photometry()
+        self.results_df = self.compute_all_photometry() 
 
     def compute_all_photometry(self):
         """Compute photometry for all images and display results."""
@@ -178,6 +211,48 @@ class PSFPhotometry:
             frame_row = self.frame_info[self.frame_info['File'] == filename].iloc[0]
             exptime = frame_row['Exptime']
             filter_ = frame_row['Filter']
+            
+            # Get timestamp from frame info - assuming there's a DATE-OBS or similar field
+            # If it's not in frame_info, you may need to extract it from FITS headers
+            if 'DATE-OBS' in frame_row:
+                date_obs = frame_row['DATE-OBS']
+            else:
+                # Try to get from FITS header
+                filepath = os.path.join(frame_row['Directory'], frame_row['File'])
+                date_obs = fits.getheader(filepath).get('DATE-OBS', '')
+            
+            # Calculate BJD if we have a timestamp
+            if date_obs:
+                try:
+                    # Convert to Time object
+                    t = Time(date_obs, format='isot', scale='utc')
+                    
+                    # Get target coordinates - assuming we have RA and DEC in frame_info
+                    # If not in frame_info, extract from FITS header
+                    if 'RA' in frame_row and 'DEC' in frame_row:
+                        ra = frame_row['RA']
+                        dec = frame_row['DEC']
+                    else:
+                        header = fits.getheader(filepath)
+                        ra = header.get('RA', 0.0)
+                        dec = header.get('DEC', 0.0)
+                    
+                    # Create SkyCoord object for the target
+                    target_coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
+                    
+                    # Get observer location (you may need to set this for your observatory)
+                    observatory = EarthLocation(lat=29.4001*u.deg, lon=-82.5862*u.deg, height=23*u.m)
+                    
+                    # Calculate BJD
+                    bjd = t.tdb + t.light_travel_time(target_coord, location=observatory)
+                    
+                    # Store BJD in photometry dictionary
+                    self.photometry[filename]['BJD'] = bjd.jd
+                except Exception as e:
+                    print(f"Warning: Could not calculate BJD for {filename}: {e}")
+                    self.photometry[filename]['BJD'] = None
+            else:
+                self.photometry[filename]['BJD'] = None
             
             # Compute photometry for each star
             for star_num, (x, y) in self.star_positions.items():
@@ -231,8 +306,6 @@ class PSFPhotometry:
                 flux_out = np.sum(star_cutout[final_mask]) * gain
                 self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
                 
-                
-                                
                 # Calculate flux uncertainty
                 flux_noise = np.sqrt(
                     (flux_out * gain) + # Shot noise
@@ -257,12 +330,24 @@ class PSFPhotometry:
         data = []
         for filename in self.images.keys():
             row = {'File': filename}
+            # Add BJD as second column
+            if 'BJD' in self.photometry[filename]:
+                row['BJD'] = self.photometry[filename].pop('BJD')  # Remove from dict after getting value
+            else:
+                row['BJD'] = None
+            # Add all other photometry data
             row.update(self.photometry[filename])
             data.append(row)
         
+        # Create DataFrame with columns in desired order
         results_df = pd.DataFrame(data)
-        print("\nPhotometry Results:")
-        print(results_df)
+        
+        # Ensure BJD is the second column after File
+        if 'BJD' in results_df.columns:
+            # Get all columns except File and BJD
+            other_cols = [col for col in results_df.columns if col not in ['File', 'BJD']]
+            # Reorder columns with File first, BJD second, then all others
+            results_df = results_df[['File', 'BJD'] + other_cols]
         
         return results_df
 
@@ -298,8 +383,10 @@ if __name__ == '__main__':
     object_name = frame_info_df['Object'].iloc[0]
 
     # Run photometry
-    psf_photometry = PSFPhotometry(frame_info_df, uncertainties_df)
+    psf_photometry = Compute_PSF_Photometry(frame_info_df, uncertainties_df)
     plt.show()
+
+    print("\nPhotometry complete.")
 
     # After window is closed, results are computed automatically
     # Create output directory if it doesn't exist
@@ -308,6 +395,12 @@ if __name__ == '__main__':
 
     # Save the results
     output_file = os.path.join(output_dir, f"{object_name}_psf_photometry.csv")
-    results_df = psf_photometry.compute_all_photometry()
-    results_df.to_csv(output_file, index=False)
-    print(f"\nResults saved to: {output_file}")
+
+    if psf_photometry.results_df is not None:
+        results_df = psf_photometry.results_df
+        # results_df.to_csv(output_file, index=False)
+        print(f"\nResults saved to: {output_file}")
+        print(results_df)
+
+    else:
+        print("\nNo results to save. Star selection may have been cancelled.")
