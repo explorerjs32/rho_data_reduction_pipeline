@@ -398,7 +398,7 @@ if __name__ == '__main__':
 
     if psf_photometry.results_df is not None:
         results_df = psf_photometry.results_df
-        # results_df.to_csv(output_file, index=False)
+        results_df.to_csv(output_file, index=False)
         print(f"\nResults saved to: {output_file}")
         print(results_df)
 

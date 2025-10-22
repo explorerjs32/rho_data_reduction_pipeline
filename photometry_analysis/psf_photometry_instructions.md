@@ -11,7 +11,7 @@ Before using the tool, ensure you have:
     - `Object`: Target object name
     - `Exptime`: Exposure time in seconds
     - `Filter`: Filter used for observation
-    - `Optional`: DATE-OBS, RA, DEC for BJD calculation
+    - *Optional*: DATE-OBS, RA, DEC for BJD calculation
 3. An `uncertainties.csv` file in the directory with space-separated columns:
     - `Read_Noise`: Detector read noise
     - `Dark_Current_<exptime>s`: Dark current for specific exposure times
