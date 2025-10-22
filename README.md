@@ -2,15 +2,13 @@
 
 Welcome to the RETRHO data reduction pipeline repository! Here, you will find the necesary tools to automatically callibrate and reduce your scientific images collected at the Rosemary Hill Observatory (RHO).
 
-<<<<<<< HEAD
-### Most Recent Version: June 18, 2025
-=======
-### Most Recent Version: September 3rd, 2025
->>>>>>> main
+
+### Most Recent Version: October 22, 2025
 
 **NOTE:** The data reduction team at RETRHO is currently working on the developement of new interactive features to do photometric calculations using the reduced data. Stay tuned.
 
 ## Features
+### Data Reduction
 * Classifies the Raw image frames into different sub-directories based on the frame type of the images stored in the `HEADER` of the `.fits` files (see `./data_reduction_codes/sort_observations.py`).
 * Automatically reduces scientific frames by classifying Light frames based on the individual observed objects using the corresponiding callibration frames (see `data_reduction_codes/image_reduction.py`). These are the steps taken during the data reduction process:
     * Create master bias frame
@@ -21,6 +19,21 @@ Welcome to the RETRHO data reduction pipeline repository! Here, you will find th
     * Subtract sky background (*optional feature*)
     * Align the reduced images (See the documentation on how to use the interactive alignment tool [here](./data_reduction_codes/image_alignment_instructions.md))
 * Generates a detailed data reduction log and outlines all the image reduction steps for every input file.
+
+### PSF Photometry Calculations
+This tool was build to interactively perform Point Spread Function (PSF) calculations on a selected group of stars from the reduced frames. We recommend using this tool for timeseries analysis, particularly focusing on exoplanet transits, variable stars, and/or transients. For this tool the user will:
+* Interactively select 1 or more stars to measure photometry for. Ideally the first star that the user selects is the main observed target, and the other stars are the reference stars to do a relative photometry analysis.
+* Automatically, the tool will perform PSF photometry for the selected stars.
+* The output is a dataframe containing:
+    * The File name of the reduce frame
+    * The measured Barycentric Julian Day (BJD) extracted from the observing date and time, and the telescope coordinates
+    * The measured flux (PSF area sum) for each star and the associated uncertainty.
+    * The converted instrumental magnitude ($M_{inst}$) from the meaured flux for each star and the associated uncertainty
+    * The (X, Y) pixel coordinate of the brightest pixel around each star.
+
+The scrip for tool can be found in `./photometry_analysis/psf_photometry.py`, and the instructions on how to use it can be found [here](https://github.com/explorerjs32/rho_data_reduction_pipeline/blob/main/photometry_analysis/psf_photometry_instructions.md). 
+
+We also have a Jupyter Notebook that explains how to visualize and analyze the PSF photometry results, which can be found [here](https://github.com/explorerjs32/rho_data_reduction_pipeline/blob/main/photometry_analysis/psf_photometry_analysis.ipynb).
 
 ## Dependencies
 The scripts that run this pipeline were developed using Python 3.8.20, which can be installed [Here](https://anaconda.org/anaconda/python/files?page=0&sort=distribution_type&sort_order=asc&version=3.8.20).
@@ -110,7 +123,7 @@ The RETRHO data reduction team is currently working on developing different inte
 ## Acknowledgments
 This code has been developed by the RETRHO data reduction team. The team would like to appreciate the contributions from current and previous members for helping developing these tools.
 
-### Current and Former Team Members
+### Current and Former Contributors
 * Francisco Mendez
 * Hannah Luft
 * Stefano Candiani
@@ -119,3 +132,4 @@ This code has been developed by the RETRHO data reduction team. The team would l
 * Ben Capistrant
 * Santiago Roa
 * Zabdiel Sanchez
+* Daniel Acosta
