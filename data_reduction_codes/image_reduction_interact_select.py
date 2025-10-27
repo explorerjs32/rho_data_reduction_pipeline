@@ -32,7 +32,9 @@ class DirectorySelectorApp:
         self.light_dir = tk.StringVar()
         self.additional_light_dirs = []  # List to store additional light frame directories
         self.dark_dir = tk.StringVar()
+        self.additional_dark_dirs = []  # List to store additional dark frame directories
         self.flat_dir = tk.StringVar()
+        self.additional_flat_dirs = []  # List to store additional flat frame directories
         self.bias_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.background_subtract = BooleanVar(value=True)
@@ -42,26 +44,44 @@ class DirectorySelectorApp:
         self.flat_widgets = []
         self.bias_widgets = []
         self.output_widgets = []
-        self.add_button = None
+        self.add_light_button = None
+        self.add_dark_button = None
+        self.add_flat_button = None
         self.bg_checkbox = None
         self.submit_button = None
         
         self.current_row = 0
 
-        # Add buttons and labels
+        # Add buttons and labels for Light Frames
         self.create_directory_selector("Light Frames", self.light_dir, self.current_row)
         self.current_row += 1
         
         # Add button for additional light frames
-        self.add_button = tk.Button(master, text="+ Add Another Light Directory", command=self.add_light_directory)
-        self.add_button.grid(row=self.current_row, column=0, columnspan=2, pady=5)
+        self.add_light_button = tk.Button(master, text="+ Add Another Light Directory", command=self.add_light_directory)
+        self.add_light_button.grid(row=self.current_row, column=0, columnspan=2, pady=5)
         self.additional_light_row = self.current_row
         self.current_row += 1
         
+        # Add buttons and labels for Dark Frames
         self.dark_widgets = self.create_directory_selector("Dark Frames", self.dark_dir, self.current_row)
         self.current_row += 1
+        
+        # Add button for additional dark frames
+        self.add_dark_button = tk.Button(master, text="+ Add Another Dark Directory", command=self.add_dark_directory)
+        self.add_dark_button.grid(row=self.current_row, column=0, columnspan=2, pady=5)
+        self.additional_dark_row = self.current_row
+        self.current_row += 1
+        
+        # Add buttons and labels for Flat Frames
         self.flat_widgets = self.create_directory_selector("Flat Frames", self.flat_dir, self.current_row)
         self.current_row += 1
+        
+        # Add button for additional flat frames
+        self.add_flat_button = tk.Button(master, text="+ Add Another Flat Directory", command=self.add_flat_directory)
+        self.add_flat_button.grid(row=self.current_row, column=0, columnspan=2, pady=5)
+        self.additional_flat_row = self.current_row
+        self.current_row += 1
+        
         self.bias_widgets = self.create_directory_selector("Bias Frames", self.bias_dir, self.current_row)
         self.current_row += 1
         self.output_widgets = self.create_directory_selector("Output Directory", self.output_dir, self.current_row)
@@ -134,23 +154,103 @@ class DirectorySelectorApp:
         
         # Reposition all widgets below the inserted row
         self.reposition_widgets()
+    
+    def add_dark_directory(self):
+        """Add an additional dark frame directory"""
+        # Create a new StringVar for the additional directory
+        new_dark_var = tk.StringVar()
+        
+        # Insert the new row after the add button
+        insert_row = self.additional_dark_row + len(self.additional_dark_dirs) + 1
+        
+        # Create label and button for the additional dark directory
+        label_widget = tk.Label(self.master, text=f"Dark Frames {len(self.additional_dark_dirs) + 2}")
+        label_widget.grid(row=insert_row, column=0, sticky='w', padx=10, pady=5)
+        
+        # Status label
+        status_label = tk.Label(self.master, text="Not selected", fg="red")
+        status_label.grid(row=insert_row, column=2, sticky='w', padx=10)
+        
+        # Select button
+        button_widget = tk.Button(self.master, text="Select", command=lambda: self.select_directory(new_dark_var, f"Additional Dark Frames {len(self.additional_dark_dirs) + 2}", status_label))
+        button_widget.grid(row=insert_row, column=1, padx=10, pady=5)
+        
+        # Store the StringVar, status label, and widgets
+        self.additional_dark_dirs.append((new_dark_var, status_label, [label_widget, button_widget, status_label]))
+        
+        # Reposition all widgets below the inserted row
+        self.reposition_widgets()
+    
+    def add_flat_directory(self):
+        """Add an additional flat frame directory"""
+        # Create a new StringVar for the additional directory
+        new_flat_var = tk.StringVar()
+        
+        # Insert the new row after the add button
+        insert_row = self.additional_flat_row + len(self.additional_flat_dirs) + 1
+        
+        # Create label and button for the additional flat directory
+        label_widget = tk.Label(self.master, text=f"Flat Frames {len(self.additional_flat_dirs) + 2}")
+        label_widget.grid(row=insert_row, column=0, sticky='w', padx=10, pady=5)
+        
+        # Status label
+        status_label = tk.Label(self.master, text="Not selected", fg="red")
+        status_label.grid(row=insert_row, column=2, sticky='w', padx=10)
+        
+        # Select button
+        button_widget = tk.Button(self.master, text="Select", command=lambda: self.select_directory(new_flat_var, f"Additional Flat Frames {len(self.additional_flat_dirs) + 2}", status_label))
+        button_widget.grid(row=insert_row, column=1, padx=10, pady=5)
+        
+        # Store the StringVar, status label, and widgets
+        self.additional_flat_dirs.append((new_flat_var, status_label, [label_widget, button_widget, status_label]))
+        
+        # Reposition all widgets below the inserted row
+        self.reposition_widgets()
         
     def reposition_widgets(self):
-        """Reposition all widgets after adding a new light directory"""
-        # Calculate the new row for the add button
-        add_button_row = self.additional_light_row + len(self.additional_light_dirs) + 1
-        self.add_button.grid(row=add_button_row, column=0, columnspan=2, pady=5)
+        """Reposition all widgets after adding a new directory"""
+        # Calculate the new row for the light add button
+        add_light_button_row = self.additional_light_row + len(self.additional_light_dirs) + 1
+        self.add_light_button.grid(row=add_light_button_row, column=0, columnspan=2, pady=5)
         
-        # Reposition dark, flat, bias, output widgets
-        dark_row = add_button_row + 1
+        # Reposition dark frames and dark add button
+        dark_row = add_light_button_row + 1
         for widget in self.dark_widgets:
             widget.grid(row=dark_row)
-            
-        flat_row = dark_row + 1
+        
+        # Position additional dark frame directories
+        current_dark_row = dark_row + 1
+        for i, (dark_var, status_label, widgets) in enumerate(self.additional_dark_dirs):
+            for widget in widgets:
+                widget.grid(row=current_dark_row + i)
+        
+        # Calculate the new row for the dark add button
+        add_dark_button_row = dark_row + len(self.additional_dark_dirs) + 1
+        self.add_dark_button.grid(row=add_dark_button_row, column=0, columnspan=2, pady=5)
+        
+        # Update the additional_dark_row for future additions
+        self.additional_dark_row = dark_row
+        
+        # Reposition flat frames and flat add button
+        flat_row = add_dark_button_row + 1
         for widget in self.flat_widgets:
             widget.grid(row=flat_row)
+        
+        # Position additional flat frame directories
+        current_flat_row = flat_row + 1
+        for i, (flat_var, status_label, widgets) in enumerate(self.additional_flat_dirs):
+            for widget in widgets:
+                widget.grid(row=current_flat_row + i)
+        
+        # Calculate the new row for the flat add button
+        add_flat_button_row = flat_row + len(self.additional_flat_dirs) + 1
+        self.add_flat_button.grid(row=add_flat_button_row, column=0, columnspan=2, pady=5)
+        
+        # Update the additional_flat_row for future additions
+        self.additional_flat_row = flat_row
             
-        bias_row = flat_row + 1
+        # Reposition bias and output widgets
+        bias_row = add_flat_button_row + 1
         for widget in self.bias_widgets:
             widget.grid(row=bias_row)
             
@@ -207,10 +307,22 @@ class DirectorySelectorApp:
             if light_var.get():  # Only add if a directory was actually selected
                 all_light_dirs.append(light_var.get())
         
+        # Collect all dark directories (main + additional)
+        all_dark_dirs = [self.dark_dir.get()]
+        for dark_var, status_label, widgets in self.additional_dark_dirs:
+            if dark_var.get():  # Only add if a directory was actually selected
+                all_dark_dirs.append(dark_var.get())
+        
+        # Collect all flat directories (main + additional)
+        all_flat_dirs = [self.flat_dir.get()]
+        for flat_var, status_label, widgets in self.additional_flat_dirs:
+            if flat_var.get():  # Only add if a directory was actually selected
+                all_flat_dirs.append(flat_var.get())
+        
         return {
             "light": all_light_dirs,
-            "dark": [self.dark_dir.get()],
-            "flat": [self.flat_dir.get()],
+            "dark": all_dark_dirs,
+            "flat": all_flat_dirs,
             "bias": [self.bias_dir.get()],
             "output": self.output_dir.get(),
             "background_subtract": self.background_subtract.get()
