@@ -104,6 +104,7 @@ class MedianImageSelector:
         self.median_combined_images = {}
         self.selected_filter = None
         self.filtered_images_dict = {}
+        self.other_frames_dict = {}
         self.median_combined_images = {}
         self.parse_filter_data()
         self.median_combine()
@@ -166,7 +167,7 @@ class MedianImageSelector:
 
         # Median-combine images
         for filter, file_data in self.filtered_images_dict.items():
-            self.median_combined_images[filter] = np.median(file_data, axis=0)
+            self.median_combined_images[filter] = np.sum(file_data, axis=0)
             print(f"✅ Median-combination complete for {filter} filter.")
 
     def display_images(self):
@@ -230,6 +231,9 @@ class MedianImageSelector:
 
         self.selected_images = {f: self.median_combined_images[f] for f in self.selected_filters}
 
+        self.other_frames_dict = {f: self.median_combined_images[f] for f in self.median_combined_images if f not in self.selected_filters}
+
+        print(self.other_frames_dict.keys())
         print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
         plt.close(self.fig)
 
