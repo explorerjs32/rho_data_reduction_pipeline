@@ -44,13 +44,21 @@ def get_frame_info(directories):
     filters = []
     exposure_times = []
 
-    #Defining global variable
+    # Defining global variables
     global wcs_file
     global wcs
+    global gain
+    global uncertainties_df
+
     # Iterate through all directories
     for directory in directories:
 
-        #Obtaining wcs file within directory
+        # Obtaining the uncertainty values from the "uncertainties" file
+        uncertainties_file_path = os.path.join(directory, 'uncertainties.csv')
+        uncertainties_df = pd.read_csv(uncertainties_file_path, sep=" ", names=["Key", "Uncertainty"])
+        print(uncertainties_df)
+
+        # Obtaining the wcs file within directory
         wcs_file = os.path.join(directory, 'wcs.fits')
 
         #Acquiring wcs information
@@ -72,6 +80,7 @@ def get_frame_info(directories):
                 dates.append(header.get('DATE-OBS', 'Unknown'))
                 filters.append(header.get('FILTER', 'Unknown'))
                 exposure_times.append(header.get('EXPTIME', 'Unknown'))
+                gain = header.get('GAIN', 'Unknown')
 
             except Exception as e:
                 print(f"Error processing file {file} in {directory}: {e}")
@@ -124,6 +133,8 @@ class MedianImageSelector:
         self.display_images()
         self.create_widgets()
         self.selected_images = {}
+        self.selected_exposure_time = []
+
         self.selected_filters = set()
         self.filter_names = list(self.median_combined_images.keys())
     
@@ -226,24 +237,27 @@ class MedianImageSelector:
         """Save the selected image."""
 
         if not self.selected_filters:
-            print("No image selected!")
+            print("❌ No image selected!")
             return
 
-        self.selected_images = {f: self.median_combined_images[f] for f in self.selected_filters}
+        self.selected_image = {f: self.median_combined_images[f] for f in self.selected_filters}
+        self.selected_exposure_time = [self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.selected_filters]
 
         self.other_frames_dict = {f: self.median_combined_images[f] for f in self.median_combined_images if f not in self.selected_filters}
 
-        print(self.other_frames_dict.keys())
-        print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
+        # print(self.other_frames_dict.keys())
+        #print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
+        selected_info = [f"ℹ️  Selected Filter: {f}. Corresponding exposure time: {exptime} s." for f, exptime in zip(self.selected_filters, self.selected_exposure_time)]
+        selected_info_str = ', '.join(selected_info)
+        print(f"{selected_info_str}")
         plt.close(self.fig)
-
-
 
 class AperturePhotometryTool:
     """Class to perform aperture photometry on the image that is selected from the MedianImageSelector class."""
 
-    def __init__(self, selected_image):
+    def __init__(self, selected_image, exposure_time):
         self.selected_image = selected_image # Using the first selected image for display  
+        self.selected_exposure_time = exposure_time
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
         self.display_image()
@@ -793,10 +807,25 @@ class AperturePhotometryTool:
 
             star_phot_table = aperture_photometry(image_data, star_aperture)
 
-            # Uncertainty calculation
+            # Uncertainty calculation (Following Karen A. Collins et al., 2017, 
+            #                          Astroimagej: Image Processing and Photometric
+            #                          Extraction for Ultra-Precise Astronomical Light Curves),
+            #                          Appendix B, Equation 7
+
+            # gain = gain (global variable defined at the beginning)                                      # Gain
+            F_star = star_phot_table['aperture_sum_0'][0]                                                 # Star flux
+            F_bg = bg_phot_table['aperture_sum_0'][0]                                                     # Background flux
+            n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                        # Pixels in star aperture
+            n_b = np.count_nonzero((bg_aperture[0].to_mask()))                                            # Pixels in background aperture
+            F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]     # Dark current
+            F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
+
             star_error = (star_phot_table['aperture_sum_0'][0])**0.5
             bg_error = (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5    # Aperture sum may be negative
             aper_sum_error = (star_error**2 + bg_error**2)**0.5
+
+            noise = ( np.sqrt( (gain * F_star) + n_pix*(1 + n_pix/n_b)*((gain * F_bg) + F_D + F_R**2) ) ) / gain
+            print(noise)
 
             star_rows.append({
                 'Star': f'Star {i+1}',
@@ -828,13 +857,14 @@ if __name__ == '__main__':
     
     # Get the frame information from the reduced images
     median_frame_info_df = get_frame_info(args.data)
-    
-    #Initialize the MedianImageSelector class
+
+    # Initialize the MedianImageSelector class
     median_selected_images_class = MedianImageSelector(median_frame_info_df)
     plt.show()
 
-    if median_selected_images_class.selected_images:
-        aperture_photometry_class = AperturePhotometryTool(median_selected_images_class.selected_images)
+    if median_selected_images_class.selected_image:
+
+        aperture_photometry_class = AperturePhotometryTool(median_selected_images_class.selected_image, median_selected_images_class.selected_exposure_time)
         plt.show()
 
 
