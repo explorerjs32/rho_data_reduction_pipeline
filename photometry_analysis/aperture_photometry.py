@@ -812,12 +812,12 @@ class AperturePhotometryTool:
             #                          Extraction for Ultra-Precise Astronomical Light Curves),
             #                          Appendix B, Equation 7
 
-            # gain = gain (global variable defined at the beginning)                                      # Gain
-            F_star = star_phot_table['aperture_sum_0'][0]                                                 # Star flux
-            F_bg = bg_phot_table['aperture_sum_0'][0]                                                     # Background flux
-            n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                        # Pixels in star aperture
-            n_b = np.count_nonzero((bg_aperture[0].to_mask()))                                            # Pixels in background aperture
-            F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]     # Dark current
+            # gain = gain (global variable defined at the beginning)                                                                           # Gain
+            F_star = star_phot_table['aperture_sum_0'][0]                                                                                      # Star flux
+            F_bg = bg_phot_table['aperture_sum_0'][0]                                                                                          # Background flux
+            n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                                                             # Pixels in star aperture
+            n_b = np.count_nonzero((bg_aperture[0].to_mask()))                                                                                 # Pixels in background aperture
+            F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]  # Dark current
             F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
 
             star_error = (star_phot_table['aperture_sum_0'][0])**0.5
