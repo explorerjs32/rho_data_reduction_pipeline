@@ -56,7 +56,6 @@ def get_frame_info(directories):
         # Obtaining the uncertainty values from the "uncertainties" file
         uncertainties_file_path = os.path.join(directory, 'uncertainties.csv')
         uncertainties_df = pd.read_csv(uncertainties_file_path, sep=" ", names=["Key", "Uncertainty"])
-        print(uncertainties_df)
 
         # Obtaining the wcs file within directory
         wcs_file = os.path.join(directory, 'wcs.fits')
