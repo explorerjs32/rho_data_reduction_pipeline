@@ -3,7 +3,7 @@
 Welcome to the RETRHO data reduction pipeline repository! Here, you will find the necesary tools to automatically callibrate and reduce your scientific images collected at the Rosemary Hill Observatory (RHO).
 
 
-### Most Recent Version: October 22, 2025
+### Most Recent Version: November 18, 2025
 
 **NOTE:** The data reduction team at RETRHO is currently working on the developement of new interactive features to do photometric calculations using the reduced data. Stay tuned.
 
