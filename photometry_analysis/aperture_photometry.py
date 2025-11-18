@@ -789,8 +789,8 @@ class AperturePhotometryTool:
                 'X_Center': bg_phot_table['xcenter'][0],
                 'Y_Center': bg_phot_table['ycenter'][0],
                 'Radius': radius,
-                'Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
-                'Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5
+                'Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
+                'Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5  # Absolute value since the background aperture sum may be negative
             })
 
         # Aperture photometry of stars
@@ -806,10 +806,8 @@ class AperturePhotometryTool:
 
             star_phot_table = aperture_photometry(image_data, star_aperture)
 
-            # Uncertainty calculation (Following Karen A. Collins et al., 2017, 
-            #                          Astroimagej: Image Processing and Photometric
-            #                          Extraction for Ultra-Precise Astronomical Light Curves),
-            #                          Appendix B, Equation 7
+            # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
+            #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
 
             # gain = gain (global variable defined at the beginning)                                                                           # Gain
             F_star = star_phot_table['aperture_sum_0'][0]                                                                                      # Star flux
@@ -819,20 +817,15 @@ class AperturePhotometryTool:
             F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]  # Dark current
             F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
 
-            star_error = (star_phot_table['aperture_sum_0'][0])**0.5
-            bg_error = (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5    # Aperture sum may be negative
-            aper_sum_error = (star_error**2 + bg_error**2)**0.5
-
             noise = ( np.sqrt( (gain * F_star) + n_pix*(1 + n_pix/n_b)*((gain * F_bg) + F_D + F_R**2) ) ) / gain
-            print(noise)
 
             star_rows.append({
                 'Star': f'Star {i+1}',
                 'X_Center': star_phot_table['xcenter'][0],
                 'Y_Center': star_phot_table['ycenter'][0],
                 'Radius': radius, 
-                'Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
-                'Aperture_Sum_Error': aper_sum_error
+                'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
+                'Net_Aperture_Sum_Error': noise
             })
 
         # Create the DataFrame
