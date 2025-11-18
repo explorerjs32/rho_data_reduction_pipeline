@@ -117,6 +117,13 @@ You can also run this script by parsing in light frames for more than one object
 
 **Note 2:** If you want to perform background subtraction for one object and not for the other(s), it is recommended that you run this pipeline separately for each object.
 
+#### Interactive Image Reduction
+After the raw images have been classified into their different sub-directories. You can run the script `image_reduction_interact_select.py` . This script can also be found in the `./data_reduction/` directory of this repository.
+
+This script functionally operates the same as `image_reduction.py` described above, but rather than manually specifying the directory paths, a GUI window will appear, allowing you to interactively select the paths within your finder or file explorer to the calibration and object frames. There is currently an option to add additional light frame directories for reducing multiple objects with the same calibration data, as well as options to add additional dark or flat frame directories if you need to use calibration frames taken separately from your main observations. 
+
+The notes related to the existing raw image reduction functions apply to this script as well. 
+
 ## Future Implementations
 The RETRHO data reduction team is currently working on developing different interative tools to do photometric calculations or generate color images from the reduced frames. 
 
