@@ -5,6 +5,7 @@ import os
 import shutil
 import argparse
 import warnings
+from reduction_functions import query_object_coordinates
 
 
 def get_frame_info(directories):
@@ -44,7 +45,8 @@ def get_frame_info(directories):
     for data_dir in directories:
         # Get the list of fits files in the current directory
         current_file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))]
-
+        # Check if the first file has RA/DEC coordinates in header
+        
         # Loop through each file in the directory and extract header info
         for file in current_file_list:
             # Get the object name from the FITS header
@@ -78,16 +80,18 @@ def get_frame_info(directories):
 
     return frame_info_df, observing_log_df
 
-def organize_frames(data_dir, frame_info_df):
+def organize_frames(data_dir, frame_info_df, del_OG=False):
     """
     Organizes the FITS files into sub-directories based on their frame type and object name.
 
     This function creates sub-directories for each frame type (Light, Dark, Bias, Flat) and
     stores the FITS files accordingly. For light frames, it creates additional sub-directories
-    for each object.
+    for each object. Optionally deletes the original files after copying.
 
     Parameters:
+    data_dir (str): The directory where the FITS files are stored.
     frame_info_df (pandas.DataFrame): A DataFrame containing the frame information.
+    del_OG (bool): If True, delete the original files after copying them to subdirectories. Default is False.
 
     Returns:
     None
@@ -107,7 +111,23 @@ def organize_frames(data_dir, frame_info_df):
     for object_name in light_frames['Object'].unique():
         # Get the light frames for the current object
         object_frames = light_frames[light_frames['Object'] == object_name]
-
+        # print(object_frames[0])
+        first_file_header = fits.getheader(os.path.join(data_dir,object_frames['Files'].iloc[0]))
+        # if current_file_list:
+            # first_file_header = fits.getheader(os.path.join(data_dir, current_file_list[0]))
+            
+        if 'RA' not in first_file_header or first_file_header.get('RA') in [None, '', 'Unknown']:
+            # Import the function to query coordinates
+            
+            # Query for coordinates
+                ra, dec = query_object_coordinates(object_name)
+                print(ra, dec)
+            # Update headers of all files in current directory
+                # print(f"\nUpdating headers in {data_dir} with RA={ra}, DEC={dec}")
+        else: 
+            ra = ''
+            dec = ''
+                
         # Create a sub-directory for the object inside the 'Light' directory
         object_dir = os.path.join(os.path.join(data_dir, 'Light'), object_name)
         os.makedirs(object_dir, exist_ok=True)
@@ -117,7 +137,17 @@ def organize_frames(data_dir, frame_info_df):
         
         for file in object_frames['Files']:
             shutil.copy2(os.path.join(data_dir, file), os.path.join(object_dir, file))
+            
             files_out.append(file)
+        
+        if ra != '' and dec != '':
+            for file in object_frames['Files']:
+                file_path = os.path.join(object_dir, file)
+                with fits.open(file_path, mode='update') as hdul:
+                    hdul[0].header['RA'] = str(ra)
+                    hdul[0].header['DEC'] = str(dec)
+                    hdul.flush()
+            print(f"Updated {len(object_frames['Files'])} files.\n")
 
         light_frames_per_object[object_name] = files_out
         files_out = []
@@ -170,6 +200,16 @@ def organize_frames(data_dir, frame_info_df):
             else:
                 for file in dark_frames_files:
                     shutil.copy2(os.path.join(data_dir, file), os.path.join(darks_dir, file))
+    
+    # Delete original files if del_OG is True
+    if del_OG:
+        print("\nDeleting original files...")
+        for _, row in frame_info_df.iterrows():
+            original_file = os.path.join(row['Directory'], row['Files'])
+            if os.path.exists(original_file):
+                os.remove(original_file)
+                print(f"Deleted: {row['Files']}")
+        print("Original files deleted.\n")
                      
     return
 
@@ -178,6 +218,7 @@ parser = argparse.ArgumentParser(
     description="Argumets to parse into the observations organizer script. It focuses on organizing the fits files from an input directory containing observations from the Rosemary Hill Observatory.")
 
 parser.add_argument('-d', '--dir', type=str, nargs='+', required=True, help="Single or multiple directories where observations (fits files) are stored.")
+parser.add_argument('--del_OG', action='store_true', help="If set, delete the original files after sorting them into subdirectories.")
 
 args = parser.parse_args()
 
@@ -188,4 +229,4 @@ frame_info_df, observing_log_df = get_frame_info(args.dir)
 print(frame_info_df)
 print(observing_log_df)
 
-organize_frames(args.dir[0], frame_info_df)
+organize_frames(args.dir[0], frame_info_df, del_OG=args.del_OG)
