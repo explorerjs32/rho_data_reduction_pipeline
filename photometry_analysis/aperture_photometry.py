@@ -840,20 +840,23 @@ class AperturePhotometryTool:
 
 class AperturePhotometryToolPart2:
 
-    def __init__(self, selected_image, exposure_time, other_frames_dict):
+    def __init__(self, selected_image, exposure_time, other_frames_dict, bg_position, bg_radius):
+        
         self.selected_image = selected_image # Using the first selected image for display  
         self.selected_exposure_time = exposure_time
         self.other_frames_dict = other_frames_dict
-        self.fig, self.ax = plt.subplots(figsize=(10, 8))
+        self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6)) # Create 2 subplots
         self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
         self.display_image()
         self.create_widgets()
-        self.current_index = 0
         self.current_xpeak, self.current_ypeak = -1, -1
         self.aperture_radius = 10.0
         self.apertures_dict = {}
         self.bg_apertures_dict = {}
         self.photometry_dict = {}
+        self.bg_position = bg_position
+        self.bg_radius = bg_radius
+        self.other_frames_exposure_times = {}
 
         self.star_text_box = []
         self.bg_text_box = []
@@ -866,6 +869,20 @@ class AperturePhotometryToolPart2:
         self.astroObjects_set = set()
         self.bg_astroObjects_set = set()
 
+        # Dictionary of all other filters/images
+        self.other_frames = other_frames_dict
+        self.filters = list(self.other_frames.keys())
+        self.index = 0  # which filter is currently displayed on the right
+
+        # Store apertures per filter
+        self.aperture_dictionary = {filt: [] for filt in self.filters}
+
+        # Store photometry per filter
+        self.photometry_dictionary = {filt: [] for filt in self.filters}
+
+        self.star_position = None
+        self.aperture_radius = None
+
         # Zoom in by using the scroll wheel
         self.scroll_cid = self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
 
@@ -875,7 +892,555 @@ class AperturePhotometryToolPart2:
         self.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
-        pass
+
+    def on_button_press(self, event):
+        """Handle mouse button press events."""
+
+        if event.button == 3:  # Right mouse button
+            self.dragging = True
+            self.press_event = event
+
+    def on_button_release(self, event):
+        """Handle mouse button release events."""
+
+        if event.button == 3:  # Right mouse button
+            self.dragging = False
+            self.press_event = None
+
+    def on_mouse_move(self, event):
+        """Handle mouse movement events."""
+
+        if self.dragging and self.press_event is not None:
+            # Calculate the displacement
+            dx = event.x - self.press_event.x
+            dy = event.y - self.press_event.y
+            
+            # Control the speed of movement 
+            speed_factor = 0.25
+            dx *= speed_factor
+            dy *= speed_factor
+            
+            # Get current limits
+            x_lim = self.ax.get_xlim()
+            y_lim = self.ax.get_ylim()
+
+            # Calculate new limits
+            new_x_lim = (x_lim[0] - dx, x_lim[1] - dx)
+
+            # Invert dy for Y-Axis
+            new_y_lim = (y_lim[0] - dy, y_lim[1] - dy)
+
+            # Get image dimensions
+            img_height = self.selected_image[list(self.selected_image.keys())[0]].shape[0]
+            img_width = self.selected_image[list(self.selected_image.keys())[0]].shape[1]
+
+            # Define edge threshold for limiting dragging
+            edge_threshold = 10
+
+            # Check horizontal limits to prevent dragging when close to the left or right edge
+            if new_x_lim[0] < edge_threshold or new_x_lim[1] > (img_width - edge_threshold):
+                # Prevent horizontal dragging
+                new_x_lim = (x_lim[0], x_lim[1])  # Keep horizontal limits unchanged
+
+            # Check vertical limits to prevent dragging when close to the top or bottom edge
+            if new_y_lim[0] < edge_threshold or new_y_lim[1] > (img_height - edge_threshold):
+                # Prevent vertical dragging
+                new_y_lim = (y_lim[0], y_lim[1])  # Keep vertical limits unchanged
+
+            # Set the limits
+            self.ax.set_xlim(max(new_x_lim[0], 0), min(new_x_lim[1], img_width))
+            self.ax.set_ylim(min(new_y_lim[0], img_height), max(new_y_lim[1], 0))  # Natural Y-axis orientation
+
+            # Redraw the figure
+            self.fig.canvas.draw_idle()
+
+    def display_image(self):
+        """Display the selected image."""
+
+        # Add title and watermark
+        self.fig.suptitle(f'Aperture Photometry Tool', fontsize=14, fontweight='bold')
+        self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
+
+        # Display the selected image and the other frame side by side
+        for (filter_name, image_data),(fn, data) in zip(self.selected_image.items(), self.other_frames_dict.items()):
+            norm = ImageNormalize(image_data, interval=ZScaleInterval())
+            norm2 = ImageNormalize(data, interval=ZScaleInterval())
+            img = self.ax1.imshow(image_data, origin='lower', cmap='gray', norm=norm)
+            img2 = self.ax2.imshow(data, origin='lower', cmap='gray', norm=norm2)
+            self.ax1.set_title(f'Filter {filter_name}', fontsize=14)
+            self.ax1.axis('off')
+            self.ax2.set_title(f'Filter {fn}', fontsize=14)
+            self.ax2.axis('off')
+    
+    def zoom_image(self, event):
+        """Zoom only the other-frames image (ax2) using the scroll wheel."""
+        # Only react when scrolling over the right-hand axis (other frame)
+        if event.inaxes != self.ax2:
+            return
+
+        x, y = event.xdata, event.ydata
+        if x is None or y is None:
+            return
+
+        # Typical behaviour: wheel 'down' -> zoom out, else zoom in (keep your prior convention)
+        scale_factor = 1.25 if event.button == 'down' else 0.75
+
+        cur_xlim = self.ax2.get_xlim()
+        cur_ylim = self.ax2.get_ylim()
+
+        new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
+        new_height = (cur_ylim[1] - cur_ylim[0]) * scale_factor
+
+        # Use the mouse cursor as the zoom center (gives intuitive zooming)
+        xcenter = x
+        ycenter = y
+
+        new_xlim = [xcenter - new_width / 2, xcenter + new_width / 2]
+        new_ylim = [ycenter - new_height / 2, ycenter + new_height / 2]
+
+        # Get the other-frame image dimensions (the one shown in ax2)
+        other_img = self.other_frames_dict[list(self.other_frames_dict.keys())[0]]
+        image_width = other_img.shape[1]
+        image_height = other_img.shape[0]
+
+        # Clamp to image bounds
+        new_xlim[0] = max(0, new_xlim[0])
+        new_xlim[1] = min(image_width, new_xlim[1])
+        new_ylim[0] = max(0, new_ylim[0])
+        new_ylim[1] = min(image_height, new_ylim[1])
+
+        # If the requested window is larger than the image, reset to full image
+        if (new_xlim[1] - new_xlim[0]) >= image_width:
+            new_xlim = [0, image_width]
+        if (new_ylim[1] - new_ylim[0]) >= image_height:
+            new_ylim = [0, image_height]
+
+        self.ax2.set_xlim(new_xlim)
+        self.ax2.set_ylim(new_ylim)
+
+        # Leave ax1 unchanged (so it always shows the full selected image)
+        self.fig.canvas.draw_idle()
+
+    def create_widgets(self):
+        """Creates widget containing the image and the buttons."""
+
+        # Define the position and size of the buttons
+        ax_add_star =             plt.axes([0.185, 0.15, 0.15, 0.05])
+        ax_increase_aper_radius = plt.axes([0.185, 0.09, 0.05, 0.05])
+        ax_decrease_aper_radius = plt.axes([0.245, 0.09, 0.05, 0.05])
+        ax_undo_star            = plt.axes([0.305, 0.09, 0.03, 0.05])
+
+        ax_perform_phot =         plt.axes([0.635, 0.15, 0.18, 0.05])
+        ax_done =                 plt.axes([0.715, 0.09, 0.10, 0.05])
+  
+        # Creating the buttons
+        self.button_add_star = widgets.Button(ax_add_star, 'Add Star', color='LightGreen')
+        self.button_increase_aper_radius = widgets.Button(ax_increase_aper_radius, '+')
+        self.button_decrease_aper_radius = widgets.Button(ax_decrease_aper_radius, '–')
+        self.button_undo_star            = widgets.Button(ax_undo_star, '↩', color="#FC6666FF")
+
+        self.button_perform_phot = widgets.Button(ax_perform_phot, 'Aperture Photometry', color='lightblue')
+        self.button_done = widgets.Button(ax_done, 'Done')
+
+        # Assigning button functionalities
+        self.button_add_star.on_clicked(lambda event: self.add_star_aperture(self.current_xpeak, self.current_ypeak))
+        self.button_increase_aper_radius.on_clicked(self.increase_aper_radius)
+        self.button_decrease_aper_radius.on_clicked(self.decrease_aper_radius)
+        self.button_perform_phot.on_clicked(lambda event: (self.perform_aperture_photometry(event)))
+        self.button_done.on_clicked(self.done_button)
+
+        self.button_undo_star.on_clicked(self.undo_star)        
+
+        # Create RectangleSelector for region selection
+        self.rect_selector = widgets.RectangleSelector(self.ax2, self.on_region_select, useblit=True, minspanx=5, minspany=5, spancoords='pixels', interactive=True, button=[1])
+        
+    def increase_aper_radius(self, event): 
+        # I edited this section for each filter
+        if self.aperture_radius is None:
+            with self.output:
+                print("Select a star first")
+            return
+        filt = self.filters[self.index]
+        
+        self.apertures_dict[filt][-1]['radius'] += 1.0
+        self.draw_star_apertures_for_current_image()
+
+    def decrease_aper_radius(self, event):
+        if self.aperture_radius is None:
+            with self.output:
+                print("Select a star first")
+            return
+        filt = self.filters[self.index]
+        
+        self.apertures_dict[filt][-1]['radius'] = max(1.0, self.apertures_dict[filt][-1]['radius'] - 1.0)
+        self.draw_star_apertures_for_current_image()    
+
+    def done_button(self, event):
+        """Closes the window when 'Done' is clicked."""
+
+        if not self.astroObjects_set and not self.bg_astroObjects_set:
+            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            return
+        
+        if not self.astroObjects_set:
+            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            return
+        
+        if not self.bg_astroObjects_set:
+            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            return
+
+        if not self.photometry_dict:
+            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            return
+        
+        # Number of objects selected in frame (number of stars + 1 background)
+        number_of_objects_selected = len(self.astroObjects_set) + len(self.bg_astroObjects_set) 
+
+        # Number of objects for which aperture photometry has been performed
+        number_of_objects_phot_performed = len(self.photometry_dict[list(self.photometry_dict.keys())[0]])
+
+        if number_of_objects_selected != number_of_objects_phot_performed:
+            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            return
+
+        filter_name = list(self.selected_image.keys())[0]
+        
+        print(f"✅✅✅ 'Done' pressed: Aperture photometry completed for {len(self.astroObjects_set)} stars.")
+        print(list(self.photometry_dict.keys())[0])
+        print(self.photometry_dict[f'Filter {filter_name}'])
+
+        plt.close(self.fig)      
+
+    def on_region_select(self, eclick, erelease):
+        """Callback function for the RectangleSelector widget."""
+
+        # Takes the value of the first key in the dictionary (the image)
+        self.image_data = self.selected_image[list(self.selected_image.keys())[0]] 
+
+        # Will remove temporary contours if they exist
+        if getattr(self, 'temp_contours', None):  
+            for line in self.temp_contours:
+                line.remove()
+        self.temp_contours = []
+
+        # Get the coordinates of the selected region
+        x1, y1 = int(eclick.xdata), int(eclick.ydata)
+        x2, y2 = int(erelease.xdata), int(erelease.ydata)
+        
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+        
+        # Ensure the selected region is within the bounds of the image
+        if width > 0 and height > 0 and x1 >= 0 and y1 >= 0 and x2 <= self.image_data.shape[1] and y2 <= self.image_data.shape[0]:
+            self.current_xpeak, self.current_ypeak = self.display_object_peak(x1, y1, width, height)
+
+    def display_object_peak(self, x, y, width, height):
+        """
+        Find the peak brightness pixel in a selected region of the image.
+        Returns (xpeak, ypeak) in full image coordinates.
+        Draws a cross at the peak location.
+        """
+        
+        sub_image = self.image_data[y:y + height, x:x + width]
+
+        # Find the peak location in the sub-image
+        ypeak_local, xpeak_local = np.unravel_index(np.argmax(sub_image), sub_image.shape)
+
+        # Convert to image coordinates
+        xpeak = x + xpeak_local
+        ypeak = y + ypeak_local
+        
+        line_size = 10
+        # Draw a cross at the peak location
+        line1 = Line2D([xpeak - line_size, xpeak + line_size], 
+                       [ypeak - line_size, ypeak + line_size], color='red', lw=0.8)
+        line2 = Line2D([xpeak - line_size, xpeak + line_size], 
+                       [ypeak + line_size, ypeak - line_size], color='red', lw=0.8)
+        self.ax.add_line(line1)
+        self.ax.add_line(line2)
+        self.temp_contours = [line1, line2]
+        self.fig.canvas.draw_idle()
+        return xpeak, ypeak
+    
+    def add_star_aperture(self, xpeak, ypeak):
+        current_index = self.current_index
+
+        # Creates first instance of apertures_dict for the current image
+        if current_index not in self.apertures_dict: 
+            self.apertures_dict[current_index] = []
+
+        objectNum = len(self.apertures_dict[self.current_index]) + 1
+
+        self.apertures_dict[current_index].append({
+            'center': (xpeak, ypeak),
+            'radius': self.aperture_radius,  # current radius setting
+            'objectNum': objectNum
+        })
+
+        self.draw_star_apertures_for_current_image()
+        self.add_aperture_helper(objectNum)
+        self.fig.canvas.draw_idle()
+        print(f"🟢 'Add Star' pressed: Star {objectNum} added.")
+        # print(len(self.star_text_box))
+        # print(self.star_text_box)
+
+
+    def undo_star(self, event):
+        current_index = self.current_index
+
+        if current_index in self.apertures_dict and self.apertures_dict[current_index]:
+            # Remove the last added aperture
+            self.apertures_dict[current_index].pop()  # This removes the last item
+            self.astroObjects_set = set(list(self.astroObjects_set)[:-1])
+            self.photometry_dict={}
+            self.star_text_box[-1].remove()
+
+            self.draw_star_apertures_for_current_image()  # Redraw the apertures
+            self.fig.canvas.draw_idle()  # Update the canvas
+            print("🔴 'Undo Star' pressed: Last star removed.")
+        else:
+            print("❌ 'Undo Star' pressed: No star to remove.")
+
+    def undo_bg(self, event):
+        current_index = self.current_index
+
+        if current_index in self.bg_apertures_dict and self.bg_apertures_dict[current_index]:
+            # Remove the last added aperture
+            self.bg_apertures_dict[current_index].pop()  # This removes the last item
+            self.bg_astroObjects_set = set(list(self.bg_astroObjects_set)[:-1])
+            self.photometry_dict={}
+            self.bg_text_box[-1].remove()
+
+            self.draw_bg_apertures_for_current_image()  # Redraw the apertures
+            self.fig.canvas.draw_idle()  # Update the canvas
+            print("🔴 'Undo Background' pressed: Background removed.")
+        else:
+            print("❌ 'Undo Background' pressed: No background to remove.")
+
+    def add_bg_aperture(self, xpeak, ypeak):
+        current_index = self.current_index
+
+        # Set maximum number of apertures
+        max_apertures = 1  
+
+        # Creates first instance for the current image
+        if current_index not in self.bg_apertures_dict:  
+            self.bg_apertures_dict[current_index] = []
+
+        # Check if the maximum number of apertures has been reached
+        if len(self.bg_apertures_dict[current_index]) >= max_apertures:
+            print("❌ 'Add Background' pressed again: Only one background aperture needed.")
+            return
+
+        bg_objectNum = len(self.bg_apertures_dict[current_index]) + 1
+
+        self.bg_apertures_dict[current_index].append({
+            'center': (xpeak, ypeak),
+            'radius': self.aperture_radius,  # current radius setting
+            'bg_objectNum': bg_objectNum
+        })
+
+        self.draw_bg_apertures_for_current_image()
+        self.add_bg_aperture_helper(bg_objectNum)
+        self.fig.canvas.draw_idle()
+        print(f"🟡 'Add Background' pressed: Background added.")
+
+    def add_aperture_helper(self, objectNum):
+        """
+        Adds an aperture for the given object number.
+        Updates astroObjects_set and apertures_dict accordingly.
+        """
+
+        if hasattr(self, 'astroObjects_set'):
+            if objectNum not in self.astroObjects_set:
+                self.astroObjects_set.add(objectNum)
+            else:
+                None
+
+        num_of_images = len(self.selected_image)
+
+        for num_of_image in range(num_of_images):
+            if num_of_image not in self.apertures_dict:
+                self.apertures_dict[num_of_image] = []
+            if objectNum not in [a['objectNum'] for a in self.apertures_dict[num_of_image]]:
+                self.apertures_dict[num_of_image].append({
+                    'center': (self.current_xpeak, self.current_ypeak),
+                    'radius': self.aperture_radius,
+                    'objectNum': objectNum
+                })
+            else:
+                None
+
+    def add_bg_aperture_helper(self, bg_objectNum):
+        """
+        Adds an aperture for the given object number.
+        Updates bg_astroObjects_set and bg_apertures_dict accordingly.
+        """
+
+        if hasattr(self, 'bg_astroObjects_set'):
+            if bg_objectNum not in self.bg_astroObjects_set:
+                self.bg_astroObjects_set.add(bg_objectNum)
+            else:
+                None
+
+        num_of_images = len(self.selected_image)
+
+        for num_of_image in range(num_of_images):
+            if num_of_image not in self.bg_apertures_dict:
+                self.bg_apertures_dict[num_of_image] = []
+            if bg_objectNum not in [a['bg_objectNum'] for a in self.bg_apertures_dict[num_of_image]]:
+                self.bg_apertures_dict[num_of_image].append({
+                    'center': (self.current_xpeak, self.current_ypeak),
+                    'radius': self.aperture_radius,
+                    'objectNum': bg_objectNum
+                })
+            else:
+                None
+
+    def draw_star_apertures_for_current_image(self):
+            # Remove old aperture patches
+        if hasattr(self, 'temp_aperture_patches'):
+            for patch in self.temp_aperture_patches:
+                patch.remove()
+
+        self.temp_aperture_patches = []
+
+        self.star_text_box.clear() 
+
+        # Draw apertures for current image
+        current_index = self.current_index
+        if current_index in self.apertures_dict:
+            for aperture in self.apertures_dict[current_index]:
+                x, y = aperture['center']
+                r = aperture['radius']
+                objectNum = aperture['objectNum']
+
+                text_star = self.ax.text(x, y + 25, f'Star {objectNum}', color='lime', fontsize=10, ha='center', va='bottom', clip_on=True)
+                self.star_text_box.append(text_star)        
+
+                patch = Circle((x, y), r, edgecolor='lime', facecolor='none', lw=1)
+                self.ax.add_patch(patch)
+                self.temp_aperture_patches.append(patch)
+
+                #self.ax.text(x, y + 25, f'Star {objectNum}', color='lime', fontsize=10, ha='center', va='bottom', clip_on=True)
+        
+            
+        self.fig.canvas.draw_idle()
+        
+    def draw_bg_apertures_for_current_image(self):
+            # Remove old aperture patches
+        if hasattr(self, 'temp_bg_aperture_patches'):
+            for patch in self.temp_bg_aperture_patches:
+                patch.remove()
+
+        self.temp_bg_aperture_patches = []
+
+        # Draw apertures for current image
+        current_index = self.current_index
+        if current_index in self.bg_apertures_dict:
+            for bg_aperture in self.bg_apertures_dict[current_index]:
+                x, y = bg_aperture['center']
+                r = bg_aperture['radius']
+
+                text_bg = self.ax.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
+                self.bg_text_box.append(text_bg)
+
+                patch = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
+                self.ax.add_patch(patch)
+                self.temp_bg_aperture_patches.append(patch)
+
+                #self.ax.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
+
+        self.fig.canvas.draw_idle()
+
+    def perform_aperture_photometry(self, event):
+        """Performs aperture photometry on all marked objects in the current image."""
+
+        current_index = self.current_index
+
+        if not self.astroObjects_set and not self.bg_astroObjects_set:
+            print("❌ 'Aperture Photometry' pressed: Please, add at least one star aperture and one background aperture.")
+            return
+
+        if not self.astroObjects_set:
+            print("❌ 'Aperture Photometry' pressed: Please, add at least one star aperture.")
+            return
+        
+        if not self.bg_astroObjects_set:
+            print("❌ 'Aperture Photometry' pressed: Please, add one background aperture.")
+            return
+        
+        # Takes the value of the first key in the dictionary (the image)
+        image_data = self.selected_image[list(self.selected_image.keys())[0]] 
+        filter_name = list(self.selected_image.keys())[0]
+
+        # Aperture photometry of background
+        bg_position = [a['center'] for a in self.bg_apertures_dict[current_index]]
+        bg_radius = [b['radius'] for b in self.bg_apertures_dict[current_index]]
+
+        bg_photometry_table = pd.DataFrame({})
+
+        bg_row=[]
+
+        for i, (position, radius) in enumerate(zip(bg_position, bg_radius)):
+            bg_aperture = [CircularAperture(position, radius)]
+            
+            bg_phot_table = aperture_photometry(image_data, bg_aperture)
+
+            bg_row.append({
+                'Star': f'Background',
+                'X_Center': bg_phot_table['xcenter'][0],
+                'Y_Center': bg_phot_table['ycenter'][0],
+                'Radius': radius,
+                'Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
+                'Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5  # Absolute value since the background aperture sum may be negative
+            })
+
+        # Aperture photometry of stars
+        positions = [a['center'] for a in self.apertures_dict[current_index]]
+        radii = [b['radius'] for b in self.apertures_dict[current_index]]
+
+        star_photometry_table = pd.DataFrame({})
+
+        star_rows=[]
+
+        for i, (position, radius) in enumerate(zip(positions, radii)):
+            star_aperture = [CircularAperture(position, radius)]
+
+            star_phot_table = aperture_photometry(image_data, star_aperture)
+
+            # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
+            #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
+
+            # gain = gain (global variable defined at the beginning)                                                                           # Gain
+            F_star = star_phot_table['aperture_sum_0'][0]                                                                                      # Star flux
+            F_bg = bg_phot_table['aperture_sum_0'][0]                                                                                          # Background flux
+            n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                                                             # Pixels in star aperture
+            n_b = np.count_nonzero((bg_aperture[0].to_mask()))                                                                                 # Pixels in background aperture
+            F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]  # Dark current
+            F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
+
+            noise = ( np.sqrt( (gain * F_star) + n_pix*(1 + n_pix/n_b)*((gain * F_bg) + F_D + F_R**2) ) ) / gain
+
+            star_rows.append({
+                'Star': f'Star {i+1}',
+                'X_Center': star_phot_table['xcenter'][0],
+                'Y_Center': star_phot_table['ycenter'][0],
+                'Radius': radius, 
+                'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
+                'Net_Aperture_Sum_Error': noise
+            })
+
+        # Create the DataFrame
+        star_photometry_table = pd.DataFrame(star_rows)
+        bg_photometry_table = pd.DataFrame(bg_row)
+
+        self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
+        
+        print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} stars.")
+        print(list(self.photometry_dict.keys())[0])
+        print(self.photometry_dict[f'Filter {filter_name}'])
 
 
 if __name__ == '__main__':
