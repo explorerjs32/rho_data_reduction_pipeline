@@ -838,6 +838,45 @@ class AperturePhotometryTool:
         print(list(self.photometry_dict.keys())[0])
         print(self.photometry_dict[f'Filter {filter_name}'])
 
+class AperturePhotometryToolPart2:
+
+    def __init__(self, selected_image, exposure_time, other_frames_dict):
+        self.selected_image = selected_image # Using the first selected image for display  
+        self.selected_exposure_time = exposure_time
+        self.other_frames_dict = other_frames_dict
+        self.fig, self.ax = plt.subplots(figsize=(10, 8))
+        self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
+        self.display_image()
+        self.create_widgets()
+        self.current_index = 0
+        self.current_xpeak, self.current_ypeak = -1, -1
+        self.aperture_radius = 10.0
+        self.apertures_dict = {}
+        self.bg_apertures_dict = {}
+        self.photometry_dict = {}
+
+        self.star_text_box = []
+        self.bg_text_box = []
+        self.text_frame_num = None
+        self.current_contour = None
+        self.current_level = None
+        self.current_vertices = None
+        self.temp_contours = []
+        self.contours_dict = {}
+        self.astroObjects_set = set()
+        self.bg_astroObjects_set = set()
+
+        # Zoom in by using the scroll wheel
+        self.scroll_cid = self.fig.canvas.mpl_connect('scroll_event', self.zoom_image)
+
+        # Drag image by right-clicking
+        self.dragging = False
+        self.press_event = None
+        self.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
+        self.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
+        self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+        pass
+
 
 if __name__ == '__main__':
     # Define the arguments to parse into the script
