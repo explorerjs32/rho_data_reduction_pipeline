@@ -32,6 +32,10 @@ frame_info_df, observing_log_df = get_frame_info(args.light, args.dark, args.fla
 
 light_objects = frame_info_df.loc[frame_info_df["Frame"] == "Light", "Object"].unique()
 
+# Create the directory to save the images
+output_dir = os.path.join(args.output, 'Reduced')
+os.makedirs(output_dir, exist_ok=True)
+
 for obj in light_objects:
     # Start of logging
     log = []
@@ -107,16 +111,12 @@ for obj in light_objects:
     aligned_images = align_images(reduced_images, log)
     print("Done aligning images\n")
 
-    # Create the directory to save the images
-    output_dir = os.path.join(args.output, 'Reduced')
-    os.makedirs(output_dir, exist_ok=True)
-
     # Create fits images and extract the information on reduced frames
     reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict)
     print("Done with the data reduction. See final report on " + output_dir)
 
     # Transferring log list of strings to the txt file
-    logfile = open(output_dir + f"/{obj}_data_reduction_report.txt", "a")
+    logfile = open(output_dir + f"/{obj}/{obj}_data_reduction_report.txt", "a")
     for line in log:
         logfile.write(line)
     logfile.close()
