@@ -58,12 +58,11 @@ def get_frame_info(directories):
         uncertainties_df = pd.read_csv(uncertainties_file_path, sep=" ", names=["Key", "Uncertainty"])
 
         # Obtaining the wcs file within directory
-        wcs_file = os.path.join(directory, 'wcs.fits')
+        #wcs_file = os.path.join(directory, 'wcs.fits')
 
         #Acquiring wcs information
-        wcs_file_header = fits.open(wcs_file)[0].header
-        wcs = WCS(wcs_file_header)
-
+        #wcs_file_header = fits.open(wcs_file)[0].header
+        #wcs = WCS(wcs_file_header)
         # Get all FITS files in the directory
         fits_files = [f for f in os.listdir(directory) if f.endswith('.fits') and f != 'wcs.fits']
 
@@ -267,6 +266,8 @@ class AperturePhotometryTool:
         self.apertures_dict = {}
         self.bg_apertures_dict = {}
         self.photometry_dict = {}
+        self.bg_position = None   #Added to store background position
+        self.bg_radius = None     #Added to store background radius
 
         self.star_text_box = []
         self.bg_text_box = []
@@ -774,7 +775,8 @@ class AperturePhotometryTool:
         # Aperture photometry of background
         bg_position = [a['center'] for a in self.bg_apertures_dict[current_index]]
         bg_radius = [b['radius'] for b in self.bg_apertures_dict[current_index]]
-
+        self.bg_position = bg_position
+        self.bg_radius = bg_radius
         bg_photometry_table = pd.DataFrame({})
 
         bg_row=[]
@@ -852,7 +854,7 @@ class AperturePhotometryToolPart2:
         self.current_xpeak, self.current_ypeak = -1, -1
         self.aperture_radius = 10.0
         self.apertures_dict = {}
-        self.bg_apertures_dict = {}
+        #self.bg_apertures_dict = {}  # We might not need a separate bg_apertures_dict here
         self.photometry_dict = {}
         self.bg_position = bg_position
         self.bg_radius = bg_radius
@@ -1458,10 +1460,16 @@ if __name__ == '__main__':
     median_selected_images_class = MedianImageSelector(median_frame_info_df)
     plt.show()
 
+    # If an image was selected, proceed to aperture photometry
     if median_selected_images_class.selected_image:
 
         aperture_photometry_class = AperturePhotometryTool(median_selected_images_class.selected_image, median_selected_images_class.selected_exposure_time)
         plt.show()
+
+        # If aperture photometry was performed on reference frame, proceed to other frames
+        if aperture_photometry_class.photometry_dict:
+            aperture_photometrytool_part2 = AperturePhotometryToolPart2(median_selected_images_class.selected_image, median_selected_images_class.selected_exposure_time, median_selected_images_class.other_frames_dict, aperture_photometry_class.bg_position, aperture_photometry_class.bg_radius)
+            plt.show()
 
 
     # Get object name for file naming
