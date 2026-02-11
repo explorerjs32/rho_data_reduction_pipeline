@@ -263,7 +263,7 @@ class AperturePhotometryTool:
         self.current_index = 0
         self.current_xpeak, self.current_ypeak = -1, -1
         self.aperture_radius = 10.0
-        self.apertures_dict = {}
+        self.reference_apertures_dict = {}
         self.bg_apertures_dict = {}
         self.photometry_dict = {}
         self.bg_position = None   #Added to store background position
@@ -450,14 +450,14 @@ class AperturePhotometryTool:
         
     def increase_aper_radius(self, event):
         current_index = self.current_index
-        if current_index in self.apertures_dict and self.apertures_dict[current_index]:
-            self.apertures_dict[current_index][-1]['radius'] += 1.0
+        if current_index in self.reference_apertures_dict and self.reference_apertures_dict[current_index]:
+            self.reference_apertures_dict[current_index][-1]['radius'] += 1.0
             self.draw_star_apertures_for_current_image()
 
     def decrease_aper_radius(self, event):
         current_index = self.current_index
-        if current_index in self.apertures_dict and self.apertures_dict[current_index]:
-            self.apertures_dict[current_index][-1]['radius'] = max(1.0, self.apertures_dict[current_index][-1]['radius'] - 1.0)
+        if current_index in self.reference_apertures_dict and self.reference_apertures_dict[current_index]:
+            self.reference_apertures_dict[current_index][-1]['radius'] = max(1.0, self.reference_apertures_dict[current_index][-1]['radius'] - 1.0)
             self.draw_star_apertures_for_current_image()    
 
     def increase_bg_radius(self, event):
@@ -564,12 +564,12 @@ class AperturePhotometryTool:
         current_index = self.current_index
 
         # Creates first instance of apertures_dict for the current image
-        if current_index not in self.apertures_dict: 
-            self.apertures_dict[current_index] = []
+        if current_index not in self.reference_apertures_dict: 
+            self.reference_apertures_dict[current_index] = []
 
-        objectNum = len(self.apertures_dict[self.current_index]) + 1
+        objectNum = len(self.reference_apertures_dict[self.current_index]) + 1
 
-        self.apertures_dict[current_index].append({
+        self.reference_apertures_dict[current_index].append({
             'center': (xpeak, ypeak),
             'radius': self.aperture_radius,  # current radius setting
             'objectNum': objectNum
@@ -586,9 +586,9 @@ class AperturePhotometryTool:
     def undo_star(self, event):
         current_index = self.current_index
 
-        if current_index in self.apertures_dict and self.apertures_dict[current_index]:
+        if current_index in self.reference_apertures_dict and self.reference_apertures_dict[current_index]:
             # Remove the last added aperture
-            self.apertures_dict[current_index].pop()  # This removes the last item
+            self.reference_apertures_dict[current_index].pop()  # This removes the last item
             self.astroObjects_set = set(list(self.astroObjects_set)[:-1])
             self.photometry_dict={}
             self.star_text_box[-1].remove()
@@ -658,10 +658,10 @@ class AperturePhotometryTool:
         num_of_images = len(self.selected_image)
 
         for num_of_image in range(num_of_images):
-            if num_of_image not in self.apertures_dict:
-                self.apertures_dict[num_of_image] = []
-            if objectNum not in [a['objectNum'] for a in self.apertures_dict[num_of_image]]:
-                self.apertures_dict[num_of_image].append({
+            if num_of_image not in self.reference_apertures_dict:
+                self.reference_apertures_dict[num_of_image] = []
+            if objectNum not in [a['objectNum'] for a in self.reference_apertures_dict[num_of_image]]:
+                self.reference_apertures_dict[num_of_image].append({
                     'center': (self.current_xpeak, self.current_ypeak),
                     'radius': self.aperture_radius,
                     'objectNum': objectNum
@@ -707,8 +707,8 @@ class AperturePhotometryTool:
 
         # Draw apertures for current image
         current_index = self.current_index
-        if current_index in self.apertures_dict:
-            for aperture in self.apertures_dict[current_index]:
+        if current_index in self.reference_apertures_dict:
+            for aperture in self.reference_apertures_dict[current_index]:
                 x, y = aperture['center']
                 r = aperture['radius']
                 objectNum = aperture['objectNum']
@@ -796,8 +796,8 @@ class AperturePhotometryTool:
             })
 
         # Aperture photometry of stars
-        positions = [a['center'] for a in self.apertures_dict[current_index]]
-        radii = [b['radius'] for b in self.apertures_dict[current_index]]
+        positions = [a['center'] for a in self.reference_apertures_dict[current_index]]
+        radii = [b['radius'] for b in self.reference_apertures_dict[current_index]]
 
         star_photometry_table = pd.DataFrame({})
 
@@ -842,13 +842,19 @@ class AperturePhotometryTool:
 
 class AperturePhotometryToolPart2:
 
-    def __init__(self, selected_image, exposure_time, other_frames_dict, bg_position, bg_radius):
+    def __init__(self, selected_image, exposure_time, other_frames_dict, bg_position, bg_radius, reference_apertures_dict):
         
         self.selected_image = selected_image # Using the first selected image for display  
         self.selected_exposure_time = exposure_time
         self.other_frames_dict = other_frames_dict
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6)) # Create 2 subplots
         self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
+        self.bg_position = bg_position
+        self.bg_radius = bg_radius
+        self.reference_apertures_dict = reference_apertures_dict
+        self.temp_bg_aperture_patches = []
+        self.bg_text_box = []
+        self.star_text_box = []
         self.display_image()
         self.create_widgets()
         self.current_xpeak, self.current_ypeak = -1, -1
@@ -856,12 +862,8 @@ class AperturePhotometryToolPart2:
         self.apertures_dict = {}
         #self.bg_apertures_dict = {}  # We might not need a separate bg_apertures_dict here
         self.photometry_dict = {}
-        self.bg_position = bg_position
-        self.bg_radius = bg_radius
         self.other_frames_exposure_times = {}
 
-        self.star_text_box = []
-        self.bg_text_box = []
         self.text_frame_num = None
         self.current_contour = None
         self.current_level = None
@@ -959,6 +961,9 @@ class AperturePhotometryToolPart2:
     def display_image(self):
         """Display the selected image."""
 
+        bg_position = self.bg_position
+        bg_radius = self.bg_radius
+
         # Add title and watermark
         self.fig.suptitle(f'Aperture Photometry Tool', fontsize=14, fontweight='bold')
         self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
@@ -973,6 +978,20 @@ class AperturePhotometryToolPart2:
             self.ax1.axis('off')
             self.ax2.set_title(f'Filter {fn}', fontsize=14)
             self.ax2.axis('off')
+
+            x, y = bg_position[0]
+            r = bg_radius[0]
+
+            text_bg_1 = self.ax1.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
+            self.bg_text_box.append(text_bg_1)
+            text_bg_other = self.ax2.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
+            self.bg_text_box.append(text_bg_other)
+
+            patch = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
+            self.ax1.add_patch(patch)
+            self.temp_bg_aperture_patches.append(patch)
+            self.ax2.add_patch(patch)
+            self.temp_bg_aperture_patches.append(patch)
     
     def zoom_image(self, event):
         """Zoom only the other-frames image (ax2) using the scroll wheel."""
@@ -1330,30 +1349,23 @@ class AperturePhotometryToolPart2:
             
         self.fig.canvas.draw_idle()
         
-    def draw_bg_apertures_for_current_image(self):
+    def draw_bg_apertures_for_all_images(self, bg_position, bg_radius):
             # Remove old aperture patches
         if hasattr(self, 'temp_bg_aperture_patches'):
             for patch in self.temp_bg_aperture_patches:
                 patch.remove()
 
+        if hasattr(self, 'bg_text_box'):
+            for txt in self.bg_text_box:
+                txt.remove()
+
+            #self.ax.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)`
+
         self.temp_bg_aperture_patches = []
+        self.bg_text_box = []
 
-        # Draw apertures for current image
-        current_index = self.current_index
-        if current_index in self.bg_apertures_dict:
-            for bg_aperture in self.bg_apertures_dict[current_index]:
-                x, y = bg_aperture['center']
-                r = bg_aperture['radius']
 
-                text_bg = self.ax.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
-                self.bg_text_box.append(text_bg)
-
-                patch = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
-                self.ax.add_patch(patch)
-                self.temp_bg_aperture_patches.append(patch)
-
-                #self.ax.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
-
+        self.bg_text_box.append(text_bg)
         self.fig.canvas.draw_idle()
 
     def perform_aperture_photometry(self, event):
@@ -1468,7 +1480,7 @@ if __name__ == '__main__':
 
         # If aperture photometry was performed on reference frame, proceed to other frames
         if aperture_photometry_class.photometry_dict:
-            aperture_photometrytool_part2 = AperturePhotometryToolPart2(median_selected_images_class.selected_image, median_selected_images_class.selected_exposure_time, median_selected_images_class.other_frames_dict, aperture_photometry_class.bg_position, aperture_photometry_class.bg_radius)
+            aperture_photometrytool_part2 = AperturePhotometryToolPart2(median_selected_images_class.selected_image, median_selected_images_class.selected_exposure_time, median_selected_images_class.other_frames_dict, aperture_photometry_class.bg_position, aperture_photometry_class.bg_radius, aperture_photometry_class.reference_apertures_dict)
             plt.show()
 
 
