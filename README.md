@@ -3,7 +3,7 @@
 Welcome to the RETRHO data reduction pipeline repository! Here, you will find the necesary tools to automatically callibrate and reduce your scientific images collected at the Rosemary Hill Observatory (RHO).
 
 
-### Most Recent Version: November 18, 2025
+### Most Recent Version: November 21, 2025
 
 **NOTE:** The data reduction team at RETRHO is currently working on the developement of new interactive features to do photometric calculations using the reduced data. Stay tuned.
 
@@ -54,6 +54,7 @@ Additionally, the following Python libraries were used along with their respecti
 * `photutils: 1.8.0`
 * `scipy: 1.10.1`
 * `tqdm: 4.67.1`
+* `astroquery: 0.4.10`
 
 If you need to install these specific versions of the libraries above, you can use the following command:
 `conda install <package_name>=<version_number>`
@@ -67,7 +68,7 @@ For git users you can clone the repository by typing on your terminal/command pr
 
 ## Usage
 ### Data Reduction
-The data reduction process is divided in two different steps: (1) sorting raw observations, and (2) reducing raw images for one or more objects. Thw codes to complete these steps can be found in `./data_reduction_codes/`. Let's look at what scripts to run and how to run them to complete these steps.
+The data reduction process is divided in two different steps: (1) sorting raw observations, and (2) reducing raw images for one or more objects. The codes to complete these steps can be found in `./data_reduction_codes/`. Let's look at what scripts to run and how to run them to complete these steps.
 
 #### Sorting Raw Images
 Once you have downloaded the raw images from RHO, you can parse in the data directory to into the `sort_observations.py` script. This script takes in a single argument called `--dir` or `-d` for short, which should point to the directory that has the raw images. 
@@ -76,11 +77,29 @@ You can run the script as follows:
 
 `python sort_observations.py -d <path_to_raw_data>`
 
+
 **Note:** You should parse in a directory rather than a list of files or a single file for the code to work properly.
 
 The output of this directory will be a copy of the raw image files inside the parsed directory, but they will be re-organized into four different sub-directories based on the frame type of the image (Light, Dark, Flat, and Bias). The light frames sub-directory will also stored the re-organized frames by the object name, and there will be an additional sub-directory for each object individually.
 
 These sub-directories will be usefull for the next step, which is the image reduction process.
+
+There is an optional argument `--del_OG` that can be added after specified directory path, which will delete the original files after sorting them into subdirectories. This option is not typically recommended in case of sorting mistakes, but users low on disk space may not want to keep multiple copies of large datasets.
+
+**Coordinate Search:** This script also checks if there is are keywords for telescope or target `RA` and `DEC` in the light frames fits headers when sorting by object, which are required for photometry. By default these should be included in the image fits header from RHO, but for times these are unavailable, this function will allow users to add these back to the image headers using `astroquery` . If these are missing or blank from the fits image header, the code will first query the SIMBAD database by the object name given in the header of the image. If the query is successful, the user will be shown the coordinates it returns, and prompted to enter `yes` or `no` in the command line to confirm these are correct for the given object. If `yes` is entered, the code will update the fits headers for all sorted copied frames corresponding to this object. 
+
+If the user enters `no`, or the query is unsuccessful with the object name provided in the header, the user will be prompted with three options to tell the code how to proceed in filling in the `RA` and `DEC` keywords in the header. These options are as follows and can be selected by entering a number `1/2/3` into the command line, corrsponding to the desired option: 
+
+
+`1. Search with a different target name`: User will manually enter the target name in the command line corresponding to the object. Useful if object names in headers aren't directly queriable in simbad (ex. object name in header for the exoplanet target is "GJ860B" will have no results from a SIMBAD query, but user can enter the star name "GJ 860" to successfully retrieve the coordinates for this target.)
+
+`2. Manually input coordinates`: User will manually enter the target `RA` and `DEC` in sexagesimal format, and shown examples of the desired format (` RA:  12 34 56.78 or 12:34:56.78 or 12h34m56.78s`, `DEC: +12 34 56.7 or +12:34:56.7 or +12d34m56.7s`). This option will be useful if SIMBAD queries are unsuccessful for a given target, the astroquery server is down/overloaded, or if the user already has the coordinates on hand.
+
+`3. Skip (leave coordinates empty)`: This will add fields for `RA` and `DEC` in the fits header, but leave them blank. This option is useful for users that are testing the pipeline or just sorting observations, for test frames where object name is unkown, or for users not looking to perform photometry. Note that if `RA` and `DEC` are left blank at this step, the user will be prompted with these options again when running `image_reduction.py` or `image_reduction_interact_select.py` below. This can also be a useful option then for anyone wanting to double check their object coordinates before entering them at the reduction phase. 
+
+The image headers will only be updated for the copied and sorted frames, not the original raw frames, so that if the user needs correct the object coordinates or makes a mistake in entering the object coordinates, they can simply run `sort_observations.py` on the raw files again to go through these steps again and assign the correct coordinates without manually modifying each frame themselves. 
+
+
 
 #### Reducing Raw Images
 After the raw images have been classified into their different sub-directories. You can run the script `image_reduction.py` by parsing in these directories. This script can also be found in the `./data_reduction/` directory of this repository.
@@ -117,6 +136,8 @@ You can also run this script by parsing in light frames for more than one object
 
 **Note 2:** If you want to perform background subtraction for one object and not for the other(s), it is recommended that you run this pipeline separately for each object.
 
+**Note 3:** If `RA` and `DEC` keywords of the target frame are still missing or left blank despite the earlier check, the user will be prompted to fill these once again as described in the *Sorting Raw Images* section above. 
+
 #### Interactive Image Reduction
 After the raw images have been classified into their different sub-directories. You can run the script `image_reduction_interact_select.py` . This script can also be found in the `./data_reduction/` directory of this repository.
 
@@ -132,11 +153,12 @@ This code has been developed by the RETRHO data reduction team. The team would l
 
 ### Current and Former Contributors
 * Francisco Mendez
-* Hannah Luft
-* Stefano Candiani
-* Cassidy Camera
-* Leslie Morales
-* Ben Capistrant
-* Santiago Roa
 * Zabdiel Sanchez
 * Daniel Acosta
+* Ben Capistrant
+* Santiago Roa
+* Stefano Candiani
+* Cassidy Camera
+* Hannah Luft
+* Leslie Morales
+

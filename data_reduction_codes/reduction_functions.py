@@ -13,6 +13,9 @@ from scipy.ndimage import shift
 import os
 import argparse
 from tqdm.auto import tqdm
+from astroquery.simbad import Simbad
+from astropy.coordinates import SkyCoord
+import astropy.units as u
 
 from alignment import ImageAlignmentTool
 
@@ -712,8 +715,28 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
             # Collect frame information for this object
             reduced_filename = file[:-5] + "_reduced.fits"
             object_fnames.append(reduced_filename)
-            object_RAs.append(raw_header['RA'])
-            object_DECs.append(raw_header['DEC'])
+            
+            # Try to get RA and DEC from header, query SIMBAD if not found
+            try:
+                ra_value = raw_header['RA']
+                dec_value = raw_header['DEC']
+            except KeyError:
+                # RA and/or DEC not found in header
+                # Check if we've already queried for this object
+                if not hasattr(create_fits, '_coord_cache'):
+                    create_fits._coord_cache = {}
+                
+                if object not in create_fits._coord_cache:
+                    print(f"\nWarning: RA and/or DEC not found in header for object '{object}'")
+                    ra_value, dec_value = query_object_coordinates(object)
+                    # Cache the coordinates for this object
+                    create_fits._coord_cache[object] = (ra_value, dec_value)
+                else:
+                    # Use cached coordinates for subsequent frames of the same object
+                    ra_value, dec_value = create_fits._coord_cache[object]
+            
+            object_RAs.append(ra_value)
+            object_DECs.append(dec_value)
             object_exptimes.append(raw_header['EXPTIME'])
             object_filters.append(raw_header['FILTER'])
             
@@ -724,8 +747,8 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
             # Append the information to the global lists
             fnames.append(reduced_filename)
             object_names.append(object)
-            RAs.append(raw_header['RA'])
-            DECs.append(raw_header['DEC'])
+            RAs.append(ra_value)
+            DECs.append(dec_value)
             exptimes.append(raw_header['EXPTIME'])
             filters.append(raw_header['FILTER'])
 
@@ -793,3 +816,155 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
     reduced_frames_info["Filter"] = filters
 
     return reduced_frames_info
+
+def query_object_coordinates(object_name):
+    """
+    Query SIMBAD database for object coordinates with user interaction.
+    
+    This function attempts to find coordinates for an astronomical object by:
+    1. First querying SIMBAD with the object name from the FITS header
+    2. Showing suggested coordinates and asking for user approval
+    3. Allowing the user to input a custom target name for search
+    4. Allowing manual input of sexagesimal coordinates if no results found
+    
+    Args:
+        object_name (str): The object name from the FITS header
+    
+    Returns:
+        tuple: (RA, DEC) as strings in the format returned by SIMBAD (e.g., 'HH MM SS.SS', '+DD MM SS.S')
+               Returns (None, None) if user cancels or no coordinates found
+    """
+    print(f"\n{'='*60}")
+    print(f"Missing RA/DEC coordinates for object: {object_name}")
+    print(f"{'='*60}")
+    
+    # Try to query SIMBAD with the original object name
+    print(f"\nQuerying SIMBAD database for '{object_name}'...")
+    
+    try:
+        result_table = Simbad.query_object(object_name)
+        
+        if result_table is not None and len(result_table) > 0:
+            ra = result_table['ra'][0]
+            dec = result_table['dec'][0]
+            coord = SkyCoord(ra, dec, unit=(u.deg, u.deg))
+                
+                # Convert to the format expected (sexagesimal strings)
+            ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
+            dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
+                
+            print(f"\n Found coordinates in SIMBAD:")
+            print(f"  RA:  {ra_str}")
+            print(f"  DEC: {dec_str}")
+            
+            while True:
+                response = input("\nUse these coordinates? (yes/no): ").strip().lower()
+                if response in ['yes', 'y']:
+                    print("Using SIMBAD coordinates.")
+                    return ra_str, dec_str
+                elif response in ['no', 'n']:
+                    break
+                else:
+                    print("Please enter 'yes' or 'no'.")
+        else:
+            print(f"No results found for '{object_name}' in SIMBAD.")
+    
+    except Exception as e:
+        print(f"Error querying SIMBAD: {e}")
+    
+    # Option to search with a different name
+    while True:
+        print("\nOptions:")
+        print("  1. Search with a different target name")
+        print("  2. Manually input coordinates")
+        print("  3. Skip (leave coordinates empty)")
+        
+        choice = input("\nEnter your choice (1/2/3): ").strip()
+        
+        if choice == '1':
+            custom_name = input("\nEnter target name to search: ").strip()
+            if not custom_name:
+                print("No name entered. Please try again.")
+                continue
+            
+            print(f"Querying SIMBAD for '{custom_name}'...")
+            try:
+                result_table = Simbad.query_object(custom_name)
+                
+                if result_table is not None and len(result_table) > 0:
+                    ra = result_table['ra'][0]
+                    dec = result_table['dec'][0]
+                    # Validate the coordinates by parsing them
+                    coord = SkyCoord(ra, dec, unit=(u.deg, u.deg))
+                    
+                    # Convert to the format expected (sexagesimal strings)
+                    ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
+                    dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
+                    print(f"\n Found coordinates:")
+                    print(f"  RA:  {ra_str}")
+                    print(f"  DEC: {dec_str}")
+                    
+                    while True:
+                        response = input("\nUse these coordinates? (yes/no): ").strip().lower()
+                        if response in ['yes', 'y']:
+                            print("Using SIMBAD coordinates.")
+                            
+                            return ra_str, dec_str
+                        elif response in ['no', 'n']:
+                            break
+                        else:
+                            print("Please enter 'yes' or 'no'.")
+                else:
+                    print(f"No results found for '{custom_name}'.")
+            
+            except Exception as e:
+                print(f"Error querying SIMBAD: {e}")
+        
+        elif choice == '2':
+            print("\nEnter coordinates in sexagesimal format:")
+            print("Examples:")
+            print("  RA:  12 34 56.78 or 12:34:56.78 or 12h34m56.78s")
+            print("  DEC: +12 34 56.7 or +12:34:56.7 or +12d34m56.7s")
+            
+            ra_input = input("\nEnter RA: ").strip()
+            dec_input = input("Enter DEC: ").strip()
+            
+            if not ra_input or not dec_input:
+                print("Both RA and DEC are required.")
+                continue
+            
+            try:
+                # Validate the coordinates by parsing them
+                coord = SkyCoord(ra_input, dec_input, unit=(u.deg, u.deg))
+                
+                # Convert to the format expected (sexagesimal strings)
+                ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
+                dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
+                
+                print(f"\n Parsed coordinates:")
+                print(f"  RA:  {ra_str}")
+                print(f"  DEC: {dec_str}")
+                
+                while True:
+                    response = input("\nUse these coordinates? (yes/no): ").strip().lower()
+                    if response in ['yes', 'y']:
+                        print("Using manually entered coordinates.")
+                        return ra_str, dec_str
+                    elif response in ['no', 'n']:
+                        break
+                    else:
+                        print("Please enter 'yes' or 'no'.")
+            
+            except Exception as e:
+                print(f"Error parsing coordinates: {e}")
+                print("Please check the format and try again.")
+        
+        elif choice == '3':
+            print("\nSkipping coordinate entry. RA and DEC will be left empty")
+            return '', ''
+        
+        else:
+            print("Invalid choice. Please enter 1, 2, or 3.")
+
+# def find_coords():
+    
