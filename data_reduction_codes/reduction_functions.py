@@ -217,7 +217,7 @@ def create_master_bias(frame_info_df, log):
    
     return master_bias, master_bias_noise
 
-def create_master_darks(frame_info_df, master_bias, log):
+def create_master_darks(frame_info_df, master_bias, log, times):
     """
     Creates a list of master darks from the information in the two dataframes.
 
@@ -266,12 +266,13 @@ def create_master_darks(frame_info_df, master_bias, log):
         dark_uncertainties["Dark_Current_" + str(exp) + "s"] = dark_current
 
         # Logging master darks created
-        log += ["Master_dark_" + str(exp) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
+        if exp in times:
+            log += ["Master_dark_" + str(exp) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks, dark_uncertainties
 
-def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, read_noise, dark_currents, log):
+def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, read_noise, dark_currents, log, filters):
     """
      Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
@@ -344,7 +345,8 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         flat_uncertainties["Flat_" + filter_name + "_Noise"] = norm_flat_field_noise
 
         # Logging Master flat creation
-        log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
+        if filter_name in filters:
+            log += ["Master_flat_" + filter_name + " created. " + str(len(flats_filter)) + " frames found\n"]
 
     return flat_filters, master_flats, flat_uncertainties
 
