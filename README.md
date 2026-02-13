@@ -154,11 +154,12 @@ This code has been developed by the RETRHO data reduction team. The team would l
 ### Current and Former Contributors
 * Francisco Mendez
 * Zabdiel Sanchez
-* Daniel Acosta
 * Ben Capistrant
+* Jackson Lyle
+* Georgeanne Johnson
 * Santiago Roa
 * Stefano Candiani
 * Cassidy Camera
 * Hannah Luft
 * Leslie Morales
-
+* Daniel Acosta
