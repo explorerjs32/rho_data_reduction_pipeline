@@ -1,4 +1,5 @@
 import math
+from shutil import copy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -853,6 +854,7 @@ class AperturePhotometryToolPart2:
         self.bg_radius = bg_radius
         self.reference_apertures_dict = reference_apertures_dict
         self.temp_bg_aperture_patches = []
+        self.temp_star_aperture_patches = []
         self.bg_text_box = []
         self.star_text_box = []
         self.display_image()
@@ -925,8 +927,8 @@ class AperturePhotometryToolPart2:
             dy *= speed_factor
             
             # Get current limits
-            x_lim = self.ax.get_xlim()
-            y_lim = self.ax.get_ylim()
+            x_lim = self.ax2.get_xlim()
+            y_lim = self.ax2.get_ylim()
 
             # Calculate new limits
             new_x_lim = (x_lim[0] - dx, x_lim[1] - dx)
@@ -935,8 +937,8 @@ class AperturePhotometryToolPart2:
             new_y_lim = (y_lim[0] - dy, y_lim[1] - dy)
 
             # Get image dimensions
-            img_height = self.selected_image[list(self.selected_image.keys())[0]].shape[0]
-            img_width = self.selected_image[list(self.selected_image.keys())[0]].shape[1]
+            img_height = self.other_frames_dict[list(self.other_frames_dict.keys())[0]].shape[0]
+            img_width = self.other_frames_dict[list(self.other_frames_dict.keys())[0]].shape[1]
 
             # Define edge threshold for limiting dragging
             edge_threshold = 10
@@ -963,6 +965,7 @@ class AperturePhotometryToolPart2:
 
         bg_position = self.bg_position
         bg_radius = self.bg_radius
+        reference_apertures_dict = self.reference_apertures_dict
 
         # Add title and watermark
         self.fig.suptitle(f'Aperture Photometry Tool', fontsize=14, fontweight='bold')
@@ -986,12 +989,23 @@ class AperturePhotometryToolPart2:
             self.bg_text_box.append(text_bg_1)
             text_bg_other = self.ax2.text(x, y+25, f'Background', color='yellow', fontsize=10, ha='center', va='bottom', clip_on=True)
             self.bg_text_box.append(text_bg_other)
+            
+            #Creating patches for background aperture in both frames
+            patch1 = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
+            patch2 = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
+            self.ax1.add_patch(patch1)
+            self.temp_bg_aperture_patches.append(patch1)
+            self.ax2.add_patch(patch2)
+            self.temp_bg_aperture_patches.append(patch2)
 
-            patch = Circle((x, y), r, edgecolor='yellow', facecolor='none', lw=1)
-            self.ax1.add_patch(patch)
-            self.temp_bg_aperture_patches.append(patch)
-            self.ax2.add_patch(patch)
-            self.temp_bg_aperture_patches.append(patch)
+            #
+            for star_id, star in enumerate(reference_apertures_dict[0]):
+                x, y = star['center']
+                r = star['radius']
+                self.ax1.text(x, y + 25, f'Star {star_id + 1}', color='lime', fontsize=10, ha='center', va='bottom', clip_on=True)
+                patch = Circle((x, y), r, edgecolor='lime', facecolor='none', lw=1)
+                self.ax1.add_patch(patch)
+                self.temp_star_aperture_patches.append(patch)
     
     def zoom_image(self, event):
         """Zoom only the other-frames image (ax2) using the scroll wheel."""
@@ -1051,6 +1065,9 @@ class AperturePhotometryToolPart2:
         ax_decrease_aper_radius = plt.axes([0.245, 0.09, 0.05, 0.05])
         ax_undo_star            = plt.axes([0.305, 0.09, 0.03, 0.05])
 
+        ax_next_filter =          plt.axes([0.340, 0.15, 0.10, 0.05])
+        ax_previous_filter =      plt.axes([0.450, 0.15, 0.10, 0.05])
+
         ax_perform_phot =         plt.axes([0.635, 0.15, 0.18, 0.05])
         ax_done =                 plt.axes([0.715, 0.09, 0.10, 0.05])
   
@@ -1060,6 +1077,9 @@ class AperturePhotometryToolPart2:
         self.button_decrease_aper_radius = widgets.Button(ax_decrease_aper_radius, '–')
         self.button_undo_star            = widgets.Button(ax_undo_star, '↩', color="#FC6666FF")
 
+        self.button_next_filter = widgets.Button(ax_next_filter, 'Next Filter', color='LightGreen')
+        self.button_previous_filter = widgets.Button(ax_previous_filter, 'Previous Filter', color='LightGreen')
+
         self.button_perform_phot = widgets.Button(ax_perform_phot, 'Aperture Photometry', color='lightblue')
         self.button_done = widgets.Button(ax_done, 'Done')
 
@@ -1067,6 +1087,8 @@ class AperturePhotometryToolPart2:
         self.button_add_star.on_clicked(lambda event: self.add_star_aperture(self.current_xpeak, self.current_ypeak))
         self.button_increase_aper_radius.on_clicked(self.increase_aper_radius)
         self.button_decrease_aper_radius.on_clicked(self.decrease_aper_radius)
+        self.button_next_filter.on_clicked(lambda event: self.next_filter(event))
+        self.button_previous_filter.on_clicked(lambda event: self.previous_filter(event))
         self.button_perform_phot.on_clicked(lambda event: (self.perform_aperture_photometry(event)))
         self.button_done.on_clicked(self.done_button)
 
@@ -1134,7 +1156,12 @@ class AperturePhotometryToolPart2:
         plt.close(self.fig)      
 
     def on_region_select(self, eclick, erelease):
-        """Callback function for the RectangleSelector widget."""
+        """Callback function for the RectangleSelector widget.
+        
+            Needs to be updated to work on the other frame (ax2) and to display the peak on both frames.
+        """
+
+        
 
         # Takes the value of the first key in the dictionary (the image)
         self.image_data = self.selected_image[list(self.selected_image.keys())[0]] 
@@ -1223,49 +1250,51 @@ class AperturePhotometryToolPart2:
         else:
             print("❌ 'Undo Star' pressed: No star to remove.")
 
-    def undo_bg(self, event):
-        current_index = self.current_index
+    # def undo_bg(self, event):
+    #     current_index = self.current_index
 
-        if current_index in self.bg_apertures_dict and self.bg_apertures_dict[current_index]:
-            # Remove the last added aperture
-            self.bg_apertures_dict[current_index].pop()  # This removes the last item
-            self.bg_astroObjects_set = set(list(self.bg_astroObjects_set)[:-1])
-            self.photometry_dict={}
-            self.bg_text_box[-1].remove()
+    #     if current_index in self.bg_apertures_dict and self.bg_apertures_dict[current_index]:
+    #         # Remove the last added aperture
+    #         self.bg_apertures_dict[current_index].pop()  # This removes the last item
+    #         self.bg_astroObjects_set = set(list(self.bg_astroObjects_set)[:-1])
+    #         self.photometry_dict={}
+    #         self.bg_text_box[-1].remove()
 
-            self.draw_bg_apertures_for_current_image()  # Redraw the apertures
-            self.fig.canvas.draw_idle()  # Update the canvas
-            print("🔴 'Undo Background' pressed: Background removed.")
-        else:
-            print("❌ 'Undo Background' pressed: No background to remove.")
+    #         self.draw_bg_apertures_for_current_image()  # Redraw the apertures
+    #         self.fig.canvas.draw_idle()  # Update the canvas
+    #         print("🔴 'Undo Background' pressed: Background removed.")
+    #     else:
+    #         print("❌ 'Undo Background' pressed: No background to remove.")
 
-    def add_bg_aperture(self, xpeak, ypeak):
-        current_index = self.current_index
+    # def add_bg_aperture(self, xpeak, ypeak):
+            """
+            Can be removed from the code from this class"""
+    #     current_index = self.current_index
 
-        # Set maximum number of apertures
-        max_apertures = 1  
+    #     # Set maximum number of apertures
+    #     max_apertures = 1  
 
-        # Creates first instance for the current image
-        if current_index not in self.bg_apertures_dict:  
-            self.bg_apertures_dict[current_index] = []
+    #     # Creates first instance for the current image
+    #     if current_index not in self.bg_apertures_dict:  
+    #         self.bg_apertures_dict[current_index] = []
 
-        # Check if the maximum number of apertures has been reached
-        if len(self.bg_apertures_dict[current_index]) >= max_apertures:
-            print("❌ 'Add Background' pressed again: Only one background aperture needed.")
-            return
+    #     # Check if the maximum number of apertures has been reached
+    #     if len(self.bg_apertures_dict[current_index]) >= max_apertures:
+    #         print("❌ 'Add Background' pressed again: Only one background aperture needed.")
+    #         return
 
-        bg_objectNum = len(self.bg_apertures_dict[current_index]) + 1
+    #     bg_objectNum = len(self.bg_apertures_dict[current_index]) + 1
 
-        self.bg_apertures_dict[current_index].append({
-            'center': (xpeak, ypeak),
-            'radius': self.aperture_radius,  # current radius setting
-            'bg_objectNum': bg_objectNum
-        })
+    #     self.bg_apertures_dict[current_index].append({
+    #         'center': (xpeak, ypeak),
+    #         'radius': self.aperture_radius,  # current radius setting
+    #         'bg_objectNum': bg_objectNum
+    #     })
 
-        self.draw_bg_apertures_for_current_image()
-        self.add_bg_aperture_helper(bg_objectNum)
-        self.fig.canvas.draw_idle()
-        print(f"🟡 'Add Background' pressed: Background added.")
+    #     self.draw_bg_apertures_for_current_image()
+    #     self.add_bg_aperture_helper(bg_objectNum)
+    #     self.fig.canvas.draw_idle()
+    #     print(f"🟡 'Add Background' pressed: Background added.")
 
     def add_aperture_helper(self, objectNum):
         """
@@ -1366,6 +1395,32 @@ class AperturePhotometryToolPart2:
 
 
         self.bg_text_box.append(text_bg)
+        self.fig.canvas.draw_idle()
+
+    def next_filter(self, event):
+        """Displays the next filter/image on the right-hand axis."""
+
+        self.index = (self.index + 1) % len(self.filters)
+        next_filter_name = self.filters[self.index]
+        next_image_data = self.other_frames_dict[next_filter_name]
+
+        norm = ImageNormalize(next_image_data, interval=ZScaleInterval())
+        self.ax2.imshow(next_image_data, origin='lower', cmap='gray', norm=norm)
+        self.ax2.set_title(f'Filter {next_filter_name}', fontsize=14)
+        self.ax2.axis('off')
+        self.fig.canvas.draw_idle()
+
+    def previous_filter(self, event):
+        """Displays the previous filter/image on the right-hand axis."""
+
+        self.index = (self.index - 1) % len(self.filters)
+        prev_filter_name = self.filters[self.index]
+        prev_image_data = self.other_frames_dict[prev_filter_name]
+
+        norm = ImageNormalize(prev_image_data, interval=ZScaleInterval())
+        self.ax2.imshow(prev_image_data, origin='lower', cmap='gray', norm=norm)
+        self.ax2.set_title(f'Filter {prev_filter_name}', fontsize=14)
+        self.ax2.axis('off')
         self.fig.canvas.draw_idle()
 
     def perform_aperture_photometry(self, event):
