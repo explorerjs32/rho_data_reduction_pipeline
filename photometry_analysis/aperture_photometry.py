@@ -864,7 +864,7 @@ class AperturePhotometryToolPart2:
         self.current_xpeak, self.current_ypeak = -1, -1
         self.aperture_radius = 10.0
         self.apertures_dict = {}
-        #self.bg_apertures_dict = {}  # We might not need a separate bg_apertures_dict here
+        self.bg_apertures_dict = {}  # We might not need a separate bg_apertures_dict here
         self.photometry_dict = {}
         self.other_frames_exposure_times = {}
 
@@ -1441,6 +1441,7 @@ class AperturePhotometryToolPart2:
         """
 
         current_index = self.current_index
+        self.photometry_dict = {}
 
         # Commented out code below could be removed from function since background aperture is already known.
         # if not self.astroObjects_set and not self.bg_astroObjects_set:
@@ -1456,76 +1457,127 @@ class AperturePhotometryToolPart2:
         #     return
         
         # Takes the value of the first key in the dictionary (the image)
-        image_data = self.selected_image[list(self.selected_image.keys())[0]] 
-        filter_name = list(self.selected_image.keys())[0]
+        #filter_name = list(self.selected_image.keys())[0]
+        #image_data = self.selected_image[filter_name]
+        #[list(self.selected_image.keys())[0]] 
 
         # Aperture photometry of background
-        bg_position = [a['center'] for a in self.bg_apertures_dict[current_index]]
-        bg_radius = [b['radius'] for b in self.bg_apertures_dict[current_index]]
+        #bg_position = [a['center'] for a in self.bg_apertures_dict[current_index]]
+        #bg_radius = [b['radius'] for b in self.bg_apertures_dict[current_index]]
 
-        bg_photometry_table = pd.DataFrame({})
+        for filter_name, image_data in self.other_frames_dict.items():
+        #for filter_name, image_data in self.selected_image.items():
 
-        bg_row=[]
+            bg_photometry_table = pd.DataFrame({})
 
-        for i, (position, radius) in enumerate(zip(bg_position, bg_radius)):
-            bg_aperture = [CircularAperture(position, radius)]
+            bg_row=[]
+            bg_sums=[]
+            bg_pixels=[]
+
+            for position, radius in zip(self.bg_position, self.bg_radius):
+            #for i, (position, radius) in enumerate(zip(self.bg_position, self.bg_radius)):
+                bg_aperture = CircularAperture(position, radius)
+                bg_phot_table = aperture_photometry(image_data, bg_aperture)
+                #star_aperture = CircularAperture(position, radius)
+
+                # Mask to count pixels
+                mask = bg_aperture.to_mask(method='center')
+                n_pix_bg = np.sum(mask.data > 0)
+
+                F_bg = bg_phot_table['aperture_sum'][0]
+
+                bg_row.append({
+                    'Star': f'Background',
+                    'X_Center': bg_phot_table['xcenter'][0],
+                    'Y_Center': bg_phot_table['ycenter'][0],
+                    'Radius': radius,
+                    #'Net_Aperture_Sum': bg_phot_table['aperture_sum'][0],
+                    #'Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum'][0]))**0.5  # Absolute value since the background aperture sum may be negative
+                    'Net_Aperture_Sum': F_bg,
+                    'Net_Aperture_Sum_Error': np.sqrt(np.abs(F_bg))
+                }) 
+
+                # For averaged background per pixel
+                bg_sums.append(F_bg)
+                bg_pixels.append(n_pix_bg)
+
+            F_bg_per_pixel = np.sum(bg_sums) / np.sum(bg_pixels)
+            n_b = np.sum(bg_pixels)
+
+            # Aperture photometry of stars
+            star_rows=[]
+            positions = [a['center'] for a in self.apertures_dict[current_index]]
+            radii = [b['radius'] for b in self.apertures_dict[current_index]]
+
+            #star_photometry_table = pd.DataFrame({})
+
+            #bg_sums = []
+            #bg_pixels = []
+
+            #for position, radius in zip(self.bg_position, self.bg_radius):
+            #    aperture = CircularAperture(position, radius)
+            #    phot = aperture_photometry(image_data, aperture)
+
+                #mask = aperture.to_mask(method='center')
+                #n_pix_bg = np.sum(mask.data > 0)
+
+                #bg_sums.append(phot['aperture_sum'][0])
+                #bg_pixels.append(n_pix_bg)
+
+            #F_bg_per_pixel = np.sum(bg_sums) / np.sum(bg_pixels)
+            #n_b = np.sum(bg_pixels)
+
+            for i, (position, radius) in enumerate(zip(positions, radii)):
+                star_aperture = CircularAperture(position, radius)
+                star_phot_table = aperture_photometry(image_data, star_aperture)
+
+                # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
+                #                         Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
+
+                # gain = gain (global variable defined at the beginning)                                                                           # Gain
+                F_star = star_phot_table['aperture_sum'][0]                                                                                      # Star flux
+                #F_bg = bg_phot_table['aperture_sum_0'][0]                                                                                          # Background flux
+                #n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                                                             # Pixels in star aperture
+                #n_b = np.count_nonzero((bg_aperture[0].to_mask())) 
+                mask = star_aperture.to_mask(method='center')
+                n_pix = np.sum(mask.data > 0)
+                F_bg = F_bg_per_pixel * n_pix     
+                                                                                        # Pixels in background aperture
+                F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]  # Dark current
+                F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
+
+                noise = ( np.sqrt( (gain * F_star) + n_pix*(1 + n_pix/n_b)*((gain * F_bg) + F_D + F_R**2) ) ) / gain
+
+                star_rows.append({
+                    'Star': f'Star {i+1}',
+                    'X_Center': star_phot_table['xcenter'][0],
+                    'Y_Center': star_phot_table['ycenter'][0],
+                    'Radius': radius, 
+                    #'Net_Aperture_Sum': (star_phot_table['aperture_sum'][0] - bg_phot_table['aperture_sum'][0]),
+                    'Net_Aperture_Sum': F_star - F_bg,
+                    'Net_Aperture_Sum_Error': noise
+                })
+
+            # Create the DataFrame
+            star_photometry_table = pd.DataFrame(star_rows)
+            bg_photometry_table = pd.DataFrame(bg_row)
+
+            #self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
+            if not hasattr(self, 'photometry_dict'):
+                self.photometry_dict = {}
+
+            self.photometry_dict[f'Filter {filter_name}'] = pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)
+            #self.photometry_dict[current_index] = {f'Filter {filter_name}': pd.concat(
+                    #[star_photometry_table, bg_photometry_table],
+                    #ignore_index=True)}
             
-            bg_phot_table = aperture_photometry(image_data, bg_aperture)
-
-            bg_row.append({
-                'Star': f'Background',
-                'X_Center': bg_phot_table['xcenter'][0],
-                'Y_Center': bg_phot_table['ycenter'][0],
-                'Radius': radius,
-                'Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
-                'Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5  # Absolute value since the background aperture sum may be negative
-            })
-
-        # Aperture photometry of stars
-        positions = [a['center'] for a in self.apertures_dict[current_index]]
-        radii = [b['radius'] for b in self.apertures_dict[current_index]]
-
-        star_photometry_table = pd.DataFrame({})
-
-        star_rows=[]
-
-        for i, (position, radius) in enumerate(zip(positions, radii)):
-            star_aperture = [CircularAperture(position, radius)]
-
-            star_phot_table = aperture_photometry(image_data, star_aperture)
-
-            # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
-            #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
-
-            # gain = gain (global variable defined at the beginning)                                                                           # Gain
-            F_star = star_phot_table['aperture_sum_0'][0]                                                                                      # Star flux
-            F_bg = bg_phot_table['aperture_sum_0'][0]                                                                                          # Background flux
-            n_pix = np.count_nonzero((star_aperture[0].to_mask()))                                                                             # Pixels in star aperture
-            n_b = np.count_nonzero((bg_aperture[0].to_mask()))                                                                                 # Pixels in background aperture
-            F_D = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]  # Dark current
-            F_R = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]                                       # Read noise       
-
-            noise = ( np.sqrt( (gain * F_star) + n_pix*(1 + n_pix/n_b)*((gain * F_bg) + F_D + F_R**2) ) ) / gain
-
-            star_rows.append({
-                'Star': f'Star {i+1}',
-                'X_Center': star_phot_table['xcenter'][0],
-                'Y_Center': star_phot_table['ycenter'][0],
-                'Radius': radius, 
-                'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
-                'Net_Aperture_Sum_Error': noise
-            })
-
-        # Create the DataFrame
-        star_photometry_table = pd.DataFrame(star_rows)
-        bg_photometry_table = pd.DataFrame(bg_row)
-
-        self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
-        
-        print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} stars.")
-        print(list(self.photometry_dict.keys())[0])
-        print(self.photometry_dict[f'Filter {filter_name}'])
-
+            #print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} stars.")
+            #print(list(self.photometry_dict.keys())[0])
+            #print(self.photometry_dict[f'Filter {filter_name}'])
+            #print(self.photometry_dict[current_index][f'Filter {filter_name}'])
+            #print(self.photometry_dict[f'Filter {filter_name}'])
+            print(f"🔵 Aperture photometry done for Filter {filter_name} "f"({len(star_photometry_table)} stars)")
+            print(self.photometry_dict[f'Filter {filter_name}'])
 
 if __name__ == '__main__':
     # Define the arguments to parse into the script
