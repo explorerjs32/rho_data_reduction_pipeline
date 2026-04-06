@@ -10,6 +10,9 @@ from astropy.stats import sigma_clipped_stats
 from astropy.visualization import ImageNormalize, ZScaleInterval
 from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation
+from astropy.modeling import models, fitting
+import warnings
+from astropy.utils.exceptions import AstropyUserWarning
 import astropy.units as u
 import argparse
 import os
@@ -280,38 +283,99 @@ class Compute_PSF_Photometry:
                 # Find region containing center
                 center_region = labeled_regions[center_y, center_x]
                 
-                # If center is not in bright region, find nearest one
-                if center_region == 0:
-                    y_grid, x_grid = np.ogrid[:star_cutout.shape[0], :star_cutout.shape[1]]
-                    distance = np.sqrt((x_grid - center_x)**2 + (y_grid - center_y)**2)
-                    bright_positions = np.where(bright_pixels)
-                    
-                    if len(bright_positions[0]) > 0:
-                        dist_to_bright = distance[bright_positions]
-                        closest_idx = np.argmin(dist_to_bright)
-                        center_region = labeled_regions[bright_positions[0][closest_idx],
-                                                    bright_positions[1][closest_idx]]
+                # Create X, Y coordinate grids for the 40x40 cutout
+                y_grid, x_grid = np.mgrid[:star_cutout.shape[0], :star_cutout.shape[1]]
+
+                # Estimate initial guesses for the fitter to converge faster
+                sky_guess = np.median(star_cutout)
+                amp_guess = np.max(star_cutout) - sky_guess
                 
-                # Create mask for central region
-                final_mask = labeled_regions == center_region
+                # Define the model: A 2D Constant (Sky) + A 2D Gaussian (Star)
+                # Note: Even if you ignore sky noise, you MUST fit the sky pedestal, 
+                # otherwise the Gaussian amplitude will be artificially inflated.
+                g_init = (models.Const2D(amplitude=sky_guess) + 
+                          models.Gaussian2D(amplitude=amp_guess, 
+                                            x_mean=half_size, y_mean=half_size, 
+                                            x_stddev=2.0, y_stddev=2.5,
+                                            theta=0.1))
+
+                # Initialize the Levenberg-Marquardt least-squares fitter
+                fitter = fitting.LevMarLSQFitter()
+
+                # Fit the model to the data 
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', AstropyUserWarning)
+                    fit_model = fitter(g_init, x_grid, y_grid, star_cutout)
+
+                # Extract the Gaussian star component (index 1, since Const2D is index 0)
+                psf_model = fit_model[1]
+                
+                # Calculate Total Flux (The volume under the 2D Gaussian)
+                # Formula: Volume = 2 * pi * Amplitude * sigma_x * sigma_y
+                flux_adu = 2 * np.pi * psf_model.amplitude.value * psf_model.x_stddev.value * psf_model.y_stddev.value
+                
+                # Calculate the "Effective Area" of the PSF for the noise equation
+                # Formula: N_eff = 4 * pi * sigma_x * sigma_y
+                npix_eff = 4 * np.pi * psf_model.x_stddev.value * psf_model.y_stddev.value
+
+                # ==========================================================
+                # --- TEMPORARY SANITY CHECK: FIRST IMAGE, FIRST STAR ---
+                # if filename == list(self.images.keys())[0] and star_num == 1:
+                #     print(f"\n--- SANITY CHECK: {filename}, Star {star_num} ---")
+                    
+                #     # 1. The Analytical Volume (Your formula)
+                #     # print(f"1. Analytical Gaussian Flux: {flux_adu:.2f} ADU")
+                    
+                #     # 2. The discrete sum of the generated model pixels (should be nearly identical to #1)
+                #     model_star_only = psf_model(x_grid, y_grid)
+                    
+                #     # 3. The raw sum of the data minus the fitted sky (will vary slightly due to noise/wings)
+                #     sky_level = fit_model[0].amplitude.value
+                #     data_bg_subtracted = star_cutout - sky_level
+                    
+                #     # --- Plotting ---
+                #     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+                    
+                #     # Panel 1: Original Data
+                #     im1 = ax1.imshow(star_cutout, origin='lower', cmap='viridis')
+                #     ax1.set_title("Original Data Cutout")
+                #     fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+                    
+                #     # Panel 2: The Fitted Model (Star + Sky)
+                #     full_model_image = fit_model(x_grid, y_grid)
+                #     im2 = ax2.imshow(full_model_image, origin='lower', cmap='viridis')
+                #     ax2.set_title(f"Fitted Model (Sky: {sky_level:.1f})")
+                #     fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+                    
+                #     # Panel 3: Residuals (Data - Model)
+                #     residuals = star_cutout - full_model_image
+                #     # Use a diverging colormap centered on 0 for residuals
+                #     vmax = np.max(np.abs(residuals))
+                #     im3 = ax3.imshow(residuals, origin='lower', cmap='RdBu_r', vmin=-vmax, vmax=vmax)
+                #     ax3.set_title("Residuals (Data - Model)")
+                #     fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+                    
+                #     plt.suptitle("PSF Fit Sanity Check", fontsize=16)
+                #     plt.tight_layout()
+                #     plt.show()
+                # ==========================================================
 
                 # Calculate uncertainties
                 read_noise = self.uncertainties_df.loc['Read_Noise', 'Value']
                 dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Value']
                 flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Value']
                 gain = self.gain
-                npix = final_mask.sum()
 
                 # Calculate flux and store results
-                flux_out = np.sum(star_cutout[final_mask]) * gain
+                flux_out = flux_adu* gain
                 self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
                 
                 # Calculate flux uncertainty
                 flux_noise = np.sqrt(
-                    (flux_out * gain) + # Shot noise
-                    (npix * dark_current * gain) +  # Dark current noise
-                    (npix * flat_noise * gain) +  # Flat field noise
-                    (npix * (read_noise * gain)**2)  # Read noise
+                    (flux_out) + # Shot noise
+                    (npix_eff * dark_current * gain) +  # Dark current noise
+                    (npix_eff * (flat_noise * gain)**2.) +  # Flat field noise
+                    (npix_eff * (read_noise * gain)**2)  # Read noise
                 )
                 self.photometry[filename][f"Flux_err_Star_{star_num}"] = flux_noise
                 
