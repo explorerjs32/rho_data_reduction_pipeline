@@ -857,8 +857,8 @@ class AperturePhotometryTool:
                 'Radius': radius, 
                 'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
                 'Net_Aperture_Sum_Error': noise,
-                'Instrumental Magnitude': inst_mag,
-                "Instrumental Magnitude Error": inst_mag_err
+                'Minst': inst_mag,
+                "Minst_Error": inst_mag_err
             })
 
         # Create the DataFrame
@@ -1475,8 +1475,8 @@ class AperturePhotometryToolPart2:
                     'Radius': radius, 
                     'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum'][0]),
                     'Net_Aperture_Sum_Error': noise,
-                    'Instrumental_Magnitude': inst_mag,
-                    "Instrumental_Magnitude_Error": inst_mag_err
+                    'Minst': inst_mag,
+                    "Minst_Error": inst_mag_err
                 })
 
             # Create the DataFrame
@@ -1523,6 +1523,6 @@ if __name__ == '__main__':
     # Saving photometry tables for each filter as CSV files
     if hasattr(aperture_photometrytool_part2, 'photometry_dict'):
         for filter_name, photometry_table in aperture_photometrytool_part2.photometry_dict.items():
-            output_path = os.path.join(output_dir, f'{object_name}_{filter_name}_aperture_photometry.csv')
+            output_path = os.path.join(output_dir, f'{object_name}_{filter_name}_Aperture_Photometry.csv')
             photometry_table.to_csv(output_path, index=False)
             print(f"📁 Photometry table for {filter_name} saved to {output_path}")
