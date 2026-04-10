@@ -895,7 +895,7 @@ def query_object_coordinates(object_name):
                     ra = result_table['ra'][0]
                     dec = result_table['dec'][0]
                     # Validate the coordinates by parsing them
-                    coord = SkyCoord(ra, dec, unit=(u.deg, u.deg))
+                    coord = SkyCoord(ra, dec, unit=(u.hour, u.deg))
                     
                     # Convert to the format expected (sexagesimal strings)
                     ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
@@ -935,7 +935,7 @@ def query_object_coordinates(object_name):
             
             try:
                 # Validate the coordinates by parsing them
-                coord = SkyCoord(ra_input, dec_input, unit=(u.deg, u.deg))
+                coord = SkyCoord(ra_input, dec_input, unit=(u.hour, u.deg))
                 
                 # Convert to the format expected (sexagesimal strings)
                 ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
