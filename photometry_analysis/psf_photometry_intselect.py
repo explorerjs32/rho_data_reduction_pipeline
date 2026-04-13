@@ -87,7 +87,7 @@ class DirectorySelectorApp:
         #validate directories
         missing=[]
         if not self.reduced_dir.get():
-            missing.append("Reduced data directory")
+            missing.append("Missing reduced data directory")
         
         # If output directory is not selected, default to current working directory
         if not self.output_dir.get():
@@ -100,13 +100,13 @@ class DirectorySelectorApp:
         uncertainties_file = os.path.join(reduced_dir, 'uncertainties.csv')
         
         if not os.path.exists(frame_info_file):
-            missing.append("frame_info.csv not found in reduced data directory")
+            missing.append("frame_info.csv not found in reduced data directory, run image_reduction scripts before performing photometry")
         if not os.path.exists(uncertainties_file):
-            missing.append("uncertainties.csv not found in reduced data directory")
+            missing.append("uncertainties.csv not found in reduced data directory, run image_reduction scripts before performing photometry")
 
         
         if missing:
-            messagebox.showerror("Error", f"Please select the following directories:\n- " + "\n- ".join(missing))
+            messagebox.showerror("Error", f"Errors:\n- " + "\n- ".join(missing))
             return
 
         self.master.destroy()
