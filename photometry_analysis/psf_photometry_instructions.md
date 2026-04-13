@@ -22,6 +22,12 @@ Run the tool from the command line:
 
 `python psf_photometry.py -d </path/to/data_directory/>`
 
+For an interactive directory selection rather inputting the directory path into the command line run:
+
+`python psf_photometry_intselect.py`
+
+And choose your input and output directory locations using the popup window.
+
 **Interactive Star Selection:**
 
 1. When launched, the tool displays the first image in the dataset
