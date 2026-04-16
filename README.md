@@ -35,6 +35,21 @@ The scrip for tool can be found in `./photometry_analysis/psf_photometry.py`, an
 
 We also have a Jupyter Notebook that explains how to visualize and analyze the PSF photometry results, which can be found [here](https://github.com/explorerjs32/rho_data_reduction_pipeline/blob/main/photometry_analysis/psf_photometry_analysis.ipynb).
 
+### Aperture Photometry Calculations
+This tool was build to interactively perform aperture photometry calculations on a selected group of stars from the reduced frames. We recommend using this tool for obtaining photometric data on stars for color magnitude diagrams, on active galactic nuclei (AGN), and/or supernovae. For this tool the user will:
+* Interactively select a combined image to represent the reference frames.
+* Interactively select 1 or more objects to measure photometry for. User will need to keep track of what objects are their main targets and what other stars are the reference stars to do a relative photometry analysis.
+    * User can modify the aperture radius for the star to create a proper fit and get more accurate values for the photometry.
+* Interactively choose the location for the background aperture to conduct background subtraction per object.
+* The output is a dataframe containing:
+    * Stars selected (includes the background)
+    * The (X,Y) pixel coordinate of the brightest pixel around each star.
+    * The radius for the apertures 
+    * Aperture Sum and the associated uncertainty 
+    * The converted instrumental magnitude ($M_{inst}$) from the measured aperture sum for each star and the associated uncertainty
+
+The scrip for the tool can be found in `./photometry_analysis/aperture_photometry.py` and the instructions on how to use it can be found [here](https://github.com/explorerjs32/rho_data_reduction_pipeline/blob/main/photometry_analysis/aperture_photometry_instructions.md).
+
 ## Dependencies
 The scripts that run this pipeline were developed using Python 3.8.20, which can be installed [Here](https://anaconda.org/anaconda/python/files?page=0&sort=distribution_type&sort_order=asc&version=3.8.20).
 
