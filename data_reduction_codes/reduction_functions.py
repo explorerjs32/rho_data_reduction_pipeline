@@ -79,7 +79,7 @@ def get_frame_info(light_dirs, dark_dirs, flat_dirs, bias_dirs):
     # Loop through all provided light frame directories
     for data_dir in light_dirs:
         # Get the list of fits files in the current directory
-        current_file_list = [f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))]
+        current_file_list = sorted([f for f in os.listdir(data_dir) if f.endswith('.fits') and os.path.isfile(os.path.join(data_dir, f))])
 
         # Loop through each file in the directory and extract header info
         for file in current_file_list:
@@ -604,7 +604,7 @@ def align_images(master_reduced_data, log):
                 try:
                     # Try automatic alignment first
                     transf, (source_list, target_list) = aa.find_transform(image, template_image, 
-                                                                           max_control_points=10)
+                                                                           max_control_points=15, detection_sigma = 2)
                     aligned_image, footprint = aa.apply_transform(transf, source=image, target=template_image)
 
                     # Save the aligned image
