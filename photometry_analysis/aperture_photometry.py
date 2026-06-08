@@ -111,17 +111,19 @@ class ReferenceImageSelector:
                     'Exptime': []
                 }) 
         self.image_data = None
-        self.median_combined_images = {}
+        self.combined_images = {}
         self.selected_filter = None
         self.filtered_images_dict = {}
         self.other_frames_dict = {}
         self.other_frames_exptime_dict = {}
-        self.median_combined_images = {}
+        self.combined_images = {}
+        self.num_bins_dict = {}
         self.parse_filter_data()
-        self.median_combine()
-        
+        self.bin_setup() # Call bin_setup before widget display
+        self.combine_images()
+
         #Designing the layout of the image display
-        n_images = len(self.median_combined_images)
+        n_images = len(self.combined_images)
         n_cols = 2
         n_rows = math.ceil(n_images / n_cols)
         self.fig, self.axes = plt.subplots(n_rows, n_cols, figsize=(7, 4 * n_rows))
@@ -131,14 +133,14 @@ class ReferenceImageSelector:
             bottom=0.15   # leave space at bottom for buttons
         )
         self.axes = self.axes.flatten()  # makes iteration easier
-        
+
         self.display_images()
         self.create_widgets()
         self.selected_images = {}
         self.selected_exposure_time = []
 
         self.selected_filters = set()
-        self.filter_names = list(self.median_combined_images.keys())
+        self.filter_names = list(self.combined_images.keys())
     
     def parse_filter_data(self):
         """Separates the light frames by filters for median combination."""
@@ -175,13 +177,51 @@ class ReferenceImageSelector:
             except Exception as e:
                 print(f"Error reading file {file} for filter {filter_name}: {e}")
 
-    def median_combine(self):
-        """Combines images of the same filter using median combination."""
+    def bin_setup(self):
+        """ User determines the number of bins they want per filter. This will in turn be used to create combine images that matches the number of bins.
+        """
 
-        # Median-combine images
+        # Prints the number of images per filter to help the user decide how many bins they want
+        for filter_name, file_data in self.filtered_images_dict.items():
+            print(f"Filter {filter_name} has {len(file_data)} images.")
+
+        # User input for number of bins per filter
         for filter, file_data in self.filtered_images_dict.items():
-            self.median_combined_images[filter] = np.sum(file_data, axis=0)
-            print(f"✅ Image combination complete for {filter} filter.")
+            while True:
+                try:
+                    self.num_bins_dict[filter] = int(input(f'How many bins do you want for filter {filter}? (Enter a number between 1 and {len(file_data)}): '))
+                    break
+                except ValueError:
+                    print("Invalid input. Please enter a valid integer.")
+        
+        print(f"Number of bins per filter: {self.num_bins_dict}")
+        
+
+    def combine_images(self):
+        """Combines images of the same filter using sum combination."""
+        # Creates combine images equal to the number of bins the user wants for each filter
+        for filter, file_data in self.filtered_images_dict.items():
+            num_images = len(file_data)
+            num_bins = self.num_bins_dict[filter]
+            images_per_bin = num_images // num_bins
+
+            for i in range(num_bins):
+                start_index = i * images_per_bin
+                # Last bin takes remaining images
+                if i < num_bins - 1:
+                    end_index = (i + 1) * images_per_bin
+                else:
+                    end_index = num_images
+                bin_images = file_data[start_index:end_index]
+                if filter not in self.combined_images:
+                    self.combined_images[filter] = []
+                self.combined_images[filter].append(np.sum(bin_images, axis = 0))
+
+        print(len(self.combined_images['R']))
+        # # Median-combine images
+        # for filter, file_data in self.filtered_images_dict.items():
+        #     self.combined_images[filter] = np.sum(file_data, axis=0)
+        #     print(f"✅ Image combination complete for {filter} filter.")
 
     def display_images(self):
             """Displays all median combined images."""
@@ -191,14 +231,14 @@ class ReferenceImageSelector:
             self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
 
             # Display median-combined image in each filter
-            for ax, (filter_name, image_data) in zip(self.axes, self.median_combined_images.items()):
+            for ax, (filter_name, image_data) in zip(self.axes, self.combined_images.items()):
                 norm = ImageNormalize(image_data, interval=ZScaleInterval())
                 ax.imshow(image_data, origin='lower', cmap='gray', norm=norm)
                 ax.set_title(filter_name)
                 ax.axis('off')
 
             # Hide any unused subplots (if filters < total subplots)
-            for ax in self.axes[len(self.median_combined_images):]:
+            for ax in self.axes[len(self.combined_images):]:
                 ax.axis('off')
 
 
@@ -207,7 +247,7 @@ class ReferenceImageSelector:
 
         # Create a small axes for checkboxes
         check_ax = plt.axes([0.125, 0.08, 0.08, 0.1])  # adjust position as needed
-        labels = list(self.median_combined_images.keys())
+        labels = list(self.combined_images.keys())
         visibility = [False] * len(labels)
         self.check = widgets.CheckButtons(check_ax, labels, visibility)
         self.check.on_clicked(self.on_check)
@@ -242,11 +282,11 @@ class ReferenceImageSelector:
             print("❌ No image selected!")
             return
 
-        self.selected_image = {f: self.median_combined_images[f] for f in self.selected_filters}
+        self.selected_image = {f: self.combined_images[f] for f in self.selected_filters}
         self.selected_exposure_time = [self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.selected_filters]
 
-        self.other_frames_dict = {f: self.median_combined_images[f] for f in self.median_combined_images if f not in self.selected_filters}
-        self.other_frames_exptime_dict = {f: self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.median_combined_images if f not in self.selected_filters}
+        self.other_frames_dict = {f: self.combined_images[f] for f in self.combined_images if f not in self.selected_filters}
+        self.other_frames_exptime_dict = {f: self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.combined_images if f not in self.selected_filters}
 
         # print(self.other_frames_dict.keys())
         #print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
