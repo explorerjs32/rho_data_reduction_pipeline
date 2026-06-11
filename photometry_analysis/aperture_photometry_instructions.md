@@ -98,26 +98,26 @@ The Aperture photometry process includes:
 
 The aperture sum uncertainty $N_{*}$ is calculated by combining multiple noise sources in quadrature:
 
-$N_{*} = \sqrt((F_{*_net}) + n_{pix} * (1 + (n_{pix}/{n_back})) * ((sky_{per_pixel}) + F_{D_adu}*gain + (F_{R_adu}*gain)**2 + (F_{flat_adu}*gain)**2))$
+$N_{*} = \sqrt{(F_{*\_net}) + n_{pix} * (1 + (n_{pix}/{n_{back}})) * ((sky_{per\_pixel}) + F_{D\_adu}*gain + (F_{R\_adu}*gain)^2 + (F_{{flat\_adu}}*gain)^2)}$
 
 Where:
 - $gain$ is the Gain of the CCD (0.37 [e/ADU])
-- $F_{*_net}$ is the measured star flux in [ADU/pixel]
+- $F_{*\_net}$ is the measured star flux in [ADU/pixel]
 - $n_{pix}$ is the number of pixels inside the aperture measuring star flux
 - $n_{back}$ is the number of pixels inside the aperture measuring background flux
-- $sky_{per_pixel}$ is the per-pixel sky background in [e/pixel]
-- $F_{D_adu}$ is the measured dark current in [ADU/pixel]
-- $F_{flat_adu}$ is the measured flat frame noise in [ADU/pixel]
-- $F_{R_adu}$ is the read noise in [ADU/pixel]
+- $sky_{per\_pixel}$ is the per-pixel sky background in [e/pixel]
+- $F_{D\_adu}$ is the measured dark current in [ADU/pixel]
+- $F_{flat\_adu}$ is the measured flat frame noise in [ADU/pixel]
+- $F_{R\_adu}$ is the read noise in [ADU/pixel]
 
 ## Instrumental Magnitude Uncertainty
 The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation:
 
-$m = -2.5 \log (aperture_sum / t)$
+$m = -2.5 \log (aperture\_sum / t)$
 
 Its associated uncertainty is then given by:
 
-$\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / aperture_sum)$
+$\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / aperture\_sum)$
 
 The factor $2.5 / log(10) ≈ 1.0857$ represents the propagation of relative flux error to magnitude units.
 
