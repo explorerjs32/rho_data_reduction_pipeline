@@ -64,15 +64,21 @@ Additionally, the following Python libraries were used along with their respecti
 * `astroalign: 2.5.2`
 * `astropy: 5.1`
 * `numpy: 1.24.3`
-* `matplotlib: 3.7.5`
+* `matplotlib: 3.7.3`
 * `pandas: 2.0.3`
 * `photutils: 1.8.0`
 * `scipy: 1.10.1`
 * `tqdm: 4.67.1`
-* `astroquery: 0.4.10`
+* `astroquery: 0.4.7`
+* `PyQt5: 5.15.11`
 
-If you need to install these specific versions of the libraries above, you can use the following command:
-`conda install <package_name>=<version_number>`
+The following packages can be installed together via conda:
+
+`conda install -c conda-forge astropy=5.1 matplotlib=3.7.3 pandas=2.0.3 scipy=1.10.1 tqdm=4.67.1`
+
+The remaining packages are not available through conda and must be installed with pip:
+
+`python -m pip install --no-user astroalign==2.5.2 numpy==1.24.3 photutils==1.8.0 astroquery==0.4.7 PyQt5==5.15.11`
 
 ## Installation
 For non-git users you can download the RETRHO data reduction pipeline and other tools by clicking on the *green* "<> Code" button and click on "Download ZIP"
