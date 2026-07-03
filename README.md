@@ -126,6 +126,7 @@ Similarly to the `sort_observations.py` script, you will be required to parse in
 * `-f`: Dierctory containing the flat frames (e.g. `<raw_data_dir>/Flat/`)
 * `-b`: Directory containing the bias frames (e.g. `<raw_data_dir>/Bias/`)
 * `-B`: *(optional boolean)* `True` or `False` argument to perform sky background subtraction. Default value is set to `True`
+* `-O`: *(optional boolean)* `True` or `False` argument to allow fits file overwritting. Default value is set to `False`
 * `-o`: Directory where you want the the reduced files to be stored as well as the auxiliary files created by the data reduction script.
 
 So, when running this code it should look like the following:

@@ -648,7 +648,7 @@ def align_images(master_reduced_data, log):
 
     return master_aligned_images
 
-def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict):
+def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict, overwrite=False):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
     associated with the original raw image. The data for each image and headers are combined into a new fits file
@@ -662,6 +662,7 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
         master_bias_noise: Read noise from the master bias
         uncertainties_dark_current: Dictionary of dark current uncertainties
         flats_uncertainty_dict: Dictionary of flat field uncertainties
+        overwrite: If True, allow overwriting existing reduced fits files instead of raising an error
 
     Returns:
         reduced_frames_info: DataFrame containing information about all reduced frames
@@ -767,7 +768,7 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
             file_name = file[:-5] + "_reduced.fits"
 
             # Write to the dir
-            hdu.writeto(os.path.join(final_dir, file_name))
+            hdu.writeto(os.path.join(final_dir, file_name), overwrite=overwrite)
 
         # Create object-specific uncertainties file
         object_uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
