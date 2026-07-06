@@ -189,8 +189,22 @@ class ReferenceImageSelector:
         for filter, file_data in self.filtered_images_dict.items():
             while True:
                 try:
-                    self.num_bins_dict[filter] = int(input(f'How many bins do you want for filter {filter}? (Enter a number between 1 and {len(file_data)}): '))
+                    num_bins = int(
+                        input(f'How many bins do you want for filter {filter}? '
+                            f'(Enter a number between 1 and {len(file_data)}): ' ))
+
+                    if num_bins < 1 or num_bins > len(file_data):
+                        print(f"Please enter a number between 1 and {len(file_data)}.")
+                        continue
+
+                    if len(file_data) % num_bins != 0:
+                        print(f"Warning: {len(file_data)} images cannot be evenly " f"divided into {num_bins} bins.")
+                        print("This will result in uneven bin sizes. " "Please choose another number of bins." )
+                        continue
+
+                    self.num_bins_dict[filter] = num_bins
                     break
+
                 except ValueError:
                     print("Invalid input. Please enter a valid integer.")
         
