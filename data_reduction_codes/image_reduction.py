@@ -23,6 +23,7 @@ parser.add_argument('-f', '--flat', type=str, nargs='+', required=True, help="Si
 parser.add_argument('-b', '--bias', type=str, nargs='+', required=True, help="Single or multiple directories containing bias frames only")
 parser.add_argument('-B', '--background_subtract', type=str2bool, default=True, help="Perform background subtraction (True/False). Default is True")
 parser.add_argument('-o', '--output', type=str, default='', required=True, help='Output directory to store the reduced frames. This directory MUST BE pre-created.')
+parser.add_argument('-O', '--overwrite', type=str2bool, default=False, help="Overwrite existing reduced fits files if they already exist (True/False). Default is False")
 
 args = parser.parse_args()
 
@@ -33,7 +34,11 @@ frame_info_df, observing_log_df = get_frame_info(args.light, args.dark, args.fla
 light_objects = frame_info_df.loc[frame_info_df["Frame"] == "Light", "Object"].unique()
 
 # Create the directory to save the images
-output_dir = os.path.join(args.output, 'Reduced')
+# Avoid double-nesting if the chosen output directory already is/ends in a "Reduced" folder
+if os.path.basename(os.path.normpath(args.output)) == 'Reduced':
+    output_dir = args.output
+else:
+    output_dir = os.path.join(args.output, 'Reduced')
 os.makedirs(output_dir, exist_ok=True)
 
 for obj in light_objects:
@@ -112,7 +117,7 @@ for obj in light_objects:
     print("Done aligning images\n")
 
     # Create fits images and extract the information on reduced frames
-    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict)
+    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict, overwrite=bool(args.overwrite))
     print("Done with the data reduction. See final report on " + output_dir)
 
     # Transferring log list of strings to the txt file

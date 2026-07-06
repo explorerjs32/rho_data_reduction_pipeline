@@ -38,6 +38,7 @@ class DirectorySelectorApp:
         self.bias_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.background_subtract = BooleanVar(value=True)
+        self.overwrite = BooleanVar(value=False)
         
         # Store widget references for repositioning
         self.dark_widgets = []
@@ -48,6 +49,7 @@ class DirectorySelectorApp:
         self.add_dark_button = None
         self.add_flat_button = None
         self.bg_checkbox = None
+        self.overwrite_checkbox = None
         self.submit_button = None
         
         self.current_row = 0
@@ -90,6 +92,11 @@ class DirectorySelectorApp:
         # Background subtract checkbox
         self.bg_checkbox = tk.Checkbutton(master, text="Background Subtraction", variable=self.background_subtract)
         self.bg_checkbox.grid(row=self.current_row, column=0, sticky='w', padx=10, pady=10)
+        self.current_row += 1
+
+        # Overwrite existing reduced files checkbox
+        self.overwrite_checkbox = tk.Checkbutton(master, text="Overwrite Existing Reduced Files", variable=self.overwrite)
+        self.overwrite_checkbox.grid(row=self.current_row, column=0, sticky='w', padx=10, pady=10)
         self.current_row += 1
 
         # Submit button
@@ -325,7 +332,8 @@ class DirectorySelectorApp:
             "flat": all_flat_dirs,
             "bias": [self.bias_dir.get()],
             "output": self.output_dir.get(),
-            "background_subtract": self.background_subtract.get()
+            "background_subtract": self.background_subtract.get(),
+            "overwrite": self.overwrite.get()
         }
 
 
@@ -363,7 +371,11 @@ frame_info_df, observing_log_df = get_frame_info(args.light, args.dark, args.fla
 light_objects = frame_info_df.loc[frame_info_df["Frame"] == "Light", "Object"].unique()
 
 # Create the directory to save the images
-output_dir = os.path.join(args.output, 'Reduced')
+# Avoid double-nesting if the chosen output directory already is/ends in a "Reduced" folder
+if os.path.basename(os.path.normpath(args.output)) == 'Reduced':
+    output_dir = args.output
+else:
+    output_dir = os.path.join(args.output, 'Reduced')
 os.makedirs(output_dir, exist_ok=True)
 
 for obj in light_objects:
@@ -450,7 +462,7 @@ for obj in light_objects:
     print("Done aligning images\n")
 
     # Create fits images and extract the information on reduced frames
-    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict)
+    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict, overwrite=bool(args.overwrite))
     print("Done with the data reduction. See final report on " + output_dir)
 
     # Transferring log list of strings to the txt file
