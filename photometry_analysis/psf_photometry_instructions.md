@@ -17,28 +17,41 @@ Before using the tool, ensure you have:
     - `Dark_Current_<exptime>s`: Dark current for specific exposure times
     - `Flat_<filter>_Noise`: Flat field noise for specific filters
 
-## Usage
-Run the tool from the command line:
+## Running the Tool
+The tool supports dual-input modes for convenience: command-line execution or interactive GUI selection.  
 
-`python psf_photometry.py -d </path/to/data_directory/>`
+### Option 1: Interactive GUI Mode
+Run the script without any arguments:
+`python psf_photometry_binning.py`
 
-For an interactive directory selection rather inputting the directory path into the command line run:
+A popup window will appear allowing you to visually browse and select your "Reduced data directory" and "Output directory".  
 
-`python psf_photometry_intselect.py`
+### Option 2: Command-Line Mode
+Bypass the GUI entirely by parsing your directories directly in the terminal:
+`python psf_photometry_binning.py -d /path/to/data/ -o /path/to/output/`
 
-And choose your input and output directory locations using the popup window.
+## Interactive Workflow
+Once the directories are selected, the tool processes your data filter by filter.  
 
-**Interactive Star Selection:**
+### 1. Terminal Binning Setup
+For each unique filter detected in your dataset, the terminal will prompt you to define the binning size:  
+- Enter 1 to co-add all images into a single master bin.  
+- Enter the total number of images to proceed with no binning (1 image per bin).  
+- Enter any other valid integer to split the images into groups. *Note: The tool will reject inputs that leave any bin with only 1 image (unless you are explicitly requesting 1 image per bin across the board).*  
 
-1. When launched, the tool displays the first image in the dataset
-2. Use the mouse to draw selection rectangles around stars:
-    - Click and drag to create a rectangle
-    - The tool automatically finds the brightest pixel in the selection
-    - Selected stars are marked with a red X and numbered
-3. Select as many stars as needed for your analysis
-4. Click the "Done with Star Selection" button when finished
+### 2. Star Selection (First Filter)
+- A single-panel plot will display the first image (or first binned image) of the first filter.  
+- Click and drag to create selection rectangles around your target stars.  
+- The tool automatically finds the brightest pixel and marks it with a red X and a sequential label (e.g., Star 1, Star 2).  
+- Click Done with Star Selection when finished.  
 
-**Output:**
+### 3. Reference Tracking (Subsequent Filters)
+- For all subsequent filters, the visualization tool will launch a dual-panel stacked plot.  
+- **Top Plot:** Displays the image from your first filter, keeping your previously selected stars and labels visible as a reference guide.  
+- **Bottom Plot:** Displays the current filter's image.  
+- Select the stars on the bottom plot in the exact same order as the reference plot above it to ensure consistency. 
+
+## Output
 
 Results are saved in a CSV file in a sub-directory inside the data directory that was parsed into the script. This CSV file contains:
 - `File`: Image filename
@@ -59,7 +72,7 @@ The PSF photometry process includes:
 5. **Uncertainty Calculation:** Error propagation accounts for all noise sources
 
 ## Uncertainty Calculations
-**Flux Uncertainty:**
+### Flux Uncertainty:
 
 The flux uncertainty $N_{*}$ is calculated by combining multiple noise sources in quadrature:
 
@@ -73,7 +86,7 @@ Where:
 - $F_{F}$ is the measured flat frame noise in [ADU/pixel]
 - $F_{R}$ is the read noise in [ADU/pixel]
 
-## Instrumental Magnitude Uncertainty
+### Instrumental Magnitude Uncertainty
 The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation:
 
 $m = -2.5 \log (F_{*}G / t)$
