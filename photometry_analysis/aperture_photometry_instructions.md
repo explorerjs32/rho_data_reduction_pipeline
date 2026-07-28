@@ -21,6 +21,12 @@ Run the tool from the command line:
 
 `python aperture_photometry.py -d </path/to/data_directory/>`
 
+**Terminal Binning Setup**
+For each unique filter detected in your dataset, the terminal will prompt you to define a binning size.
+    - Enter 1 to combine all images into one bin.
+    - Enter the total number of images to ensure no binning.
+    - Enter any other valid integer to split images into groups. These images would then combine and represent a datapoint per bin. * Note: the tool will reject inputs that causes a bin to contain less than two images. Please select a different integer value that would ensure that each bin contains more than 2 images.
+
 **Interactive Reference Image Selection**
 
 1. When launched, the first widget will display all combined images per filter.
@@ -75,15 +81,15 @@ Run the tool from the command line:
 **Output:**
 
 Results are saved individually in a CSV file per filter inside the data directory that was parsed into the script. This CSV file contains:
-- `Star` : Star number. 
-- `X_Center`: The x pixel position for the Star. 
-- `Y_Center`: The y pixel position for the Star. 
-- `Radius`: The radius of the aperture for the Star. 
-- `Net_Aperture_Sum`: Aperture sum for the Star.
-- `Net_Aperture_Sum_Error`: Aperture sum error for the Star
-- `Minst`: Instrumental magnitude for the Star
-- `Minst_Error`: Instrumental magnitude error for the Star
-The CSV file also contains a row with the background.
+- `File`: Image filename of one of the images that were used for the bin.
+- `X_Center_Star_N`: The x pixel position for the Star. 
+- `Y_Center_Star_N`: The y pixel position for the Star. 
+- `Radius_Star_N`: The radius of the aperture for the Star. 
+- `Net_Aperture_Sum_Star_N`: Aperture sum for the Star.
+- `Net_Aperture_Sum_Error_Star_N`: Aperture sum error for the Star
+- `Minst_Star_N`: Instrumental magnitude for the Star
+- `Minst_Error_Star_N`: Instrumental magnitude error for the Star
+The CSV file also contains the background information for the region selected.
 
 ## Photometry Algorithm
 The Aperture photometry process includes:
@@ -122,10 +128,11 @@ $\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / aperture_sum)$
 The factor $2.5 / log(10) ≈ 1.0857$ represents the propagation of relative flux error to magnitude units.
 
 ## Best Practices
-1. **Star Selection:** Choose stars that are isolated from their companions
-2. **Star Aperture Size** Ensure that the aperture properly covers the star and does not include background
-3. **Reference Stars:** Include non-variable stars for differential photometry
-4. **Background Aperture Size** Ensure that the aperture does not include any stars
+1. **Binning Setup** Choose an appropriate bin setup to ensure a consistent number of images per bin
+2. **Star Selection:** Choose stars that are isolated from their companions
+3. **Star Aperture Size** Ensure that the aperture properly covers the star and does not include background
+4. **Reference Stars:** Include non-variable stars for differential photometry
+5. **Background Aperture Size** Ensure that the aperture does not include any stars
 
 ## Recomended Targets
 The aperture  photometry tool will have a best performance for:

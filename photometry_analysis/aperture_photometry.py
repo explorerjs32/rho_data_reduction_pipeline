@@ -112,11 +112,13 @@ class ReferenceImageSelector:
                 }) 
         self.image_data = None
         self.combined_images = {}
-        self.selected_filter = None
+        self.selected_filter = set()
         self.filtered_images_dict = {}
         self.other_frames_dict = {}
         self.other_frames_exptime_dict = {}
+        self.filtered_file_names_dict = {}
         self.combined_images = {}
+        self.combined_image_files = {}
         self.num_bins_dict = {}
         self.parse_filter_data()
         self.bin_setup() # Call bin_setup before widget display
@@ -139,7 +141,7 @@ class ReferenceImageSelector:
         self.selected_images = {}
         self.selected_exposure_time = []
 
-        self.selected_filters = set()
+        # self.selected_filter = set()
         self.filter_names = list(self.combined_images.keys())
     
     def parse_filter_data(self):
@@ -158,6 +160,7 @@ class ReferenceImageSelector:
             # If the filter key doesn't exist in the dictionary, create an empty list for it
             if filter_name not in self.filtered_images_dict:
                 self.filtered_images_dict[filter_name] = []
+                self.filtered_file_names_dict[filter_name] = []
                 # Appending the file information to the median_frame_info DataFrame
                 new_row = pd.DataFrame([{
                     'Directory': directory,
@@ -174,6 +177,7 @@ class ReferenceImageSelector:
                 with fits.open(file_path) as hdul:
                     file_data = hdul[0].data.astype(float)
                     self.filtered_images_dict[filter_name].append(file_data)
+                    self.filtered_file_names_dict[filter_name].append(file)
             except Exception as e:
                 print(f"Error reading file {file} for filter {filter_name}: {e}")
 
@@ -182,26 +186,33 @@ class ReferenceImageSelector:
         """
 
         # Prints the number of images per filter to help the user decide how many bins they want
+
+        print("\nImage Summary")
+        print("-" * 30)
+
         for filter_name, file_data in self.filtered_images_dict.items():
             print(f"Filter {filter_name} has {len(file_data)} images.")
 
         # User input for number of bins per filter
+        print("\nConfigure Binning")
+        print("-" * 30)
         for filter, file_data in self.filtered_images_dict.items():
             while True:
                 try:
                     num_bins = int(
-                        input(f'How many bins do you want for filter {filter}? '
+                        input(f'How many bins do you want for filter {filter}?\n '
                             f'(Enter a number between 1 and {len(file_data)}): ' ))
 
                     if num_bins < 1 or num_bins > len(file_data):
                         print(f"Please enter a number between 1 and {len(file_data)}.")
                         continue
-
-                    if len(file_data) % num_bins != 0:
-                        print(f"Warning: {len(file_data)} images cannot be evenly " f"divided into {num_bins} bins.")
-                        print("This will result in uneven bin sizes. " "Please choose another number of bins." )
+                    
+                    number_of_images_per_bin = len(file_data) // num_bins
+                    if number_of_images_per_bin < 2:
+                        print(f"Warning: {len(file_data)} images divided into {num_bins} bins results in {number_of_images_per_bin} images per bin.")
+                        print("It's recommended to have at least 2 images per bin for effective combination. " "Please choose another number of bins." )
                         continue
-
+                    
                     self.num_bins_dict[filter] = num_bins
                     break
 
@@ -218,6 +229,8 @@ class ReferenceImageSelector:
             num_images = len(file_data)
             num_bins = self.num_bins_dict[filter]
             images_per_bin = num_images // num_bins
+            self.combined_images[filter] = []
+            self.combined_image_files[filter] = []
 
             for i in range(num_bins):
                 start_index = i * images_per_bin
@@ -227,15 +240,10 @@ class ReferenceImageSelector:
                 else:
                     end_index = num_images
                 bin_images = file_data[start_index:end_index]
-                if filter not in self.combined_images:
-                    self.combined_images[filter] = []
+                bin_file_names = self.filtered_file_names_dict.get(filter, [])[start_index:end_index]
+                combined_file_name = bin_file_names[0] if bin_file_names else ''
                 self.combined_images[filter].append(np.sum(bin_images, axis = 0))
-
-        print(len(self.combined_images['R']))
-        # # Median-combine images
-        # for filter, file_data in self.filtered_images_dict.items():
-        #     self.combined_images[filter] = np.sum(file_data, axis=0)
-        #     print(f"✅ Image combination complete for {filter} filter.")
+                self.combined_image_files[filter].append(combined_file_name)
 
     def display_images(self):
             """Displays all median combined images."""
@@ -244,8 +252,10 @@ class ReferenceImageSelector:
             self.fig.suptitle(f'Reference Image Selector', fontsize=14, fontweight='bold')
             self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
 
-            # Display median-combined image in each filter
-            for ax, (filter_name, image_data) in zip(self.axes, self.combined_images.items()):
+            # Display the first combined image per filter in the subplots
+            for ax, (filter_name, image_data_list) in zip(self.axes, self.combined_images.items()):
+                # Display the first combined image for each filter
+                image_data = image_data_list[0]
                 norm = ImageNormalize(image_data, interval=ZScaleInterval())
                 ax.imshow(image_data, origin='lower', cmap='gray', norm=norm)
                 ax.set_title(filter_name)
@@ -273,16 +283,16 @@ class ReferenceImageSelector:
     def on_check(self, label):
         """Handle checkbox selection."""
 
-        if label in self.selected_filters:
-            self.selected_filters.remove(label)
+        if label in self.selected_filter:
+            self.selected_filter.remove(label)
         else:
-            self.selected_filters.add(label)
+            self.selected_filter.add(label)
             
 
         # Highlight selections
         for ax, filter_name in zip(self.axes.flat, self.filter_names):
-            color = 'yellow' if filter_name in self.selected_filters else 'black'
-            lw = 3 if filter_name in self.selected_filters else 1
+            color = 'yellow' if filter_name in self.selected_filter else 'black'
+            lw = 3 if filter_name in self.selected_filter else 1
             for spine in ax.spines.values():
                 spine.set_edgecolor(color)
                 spine.set_linewidth(lw)
@@ -292,19 +302,21 @@ class ReferenceImageSelector:
     def save_selected_image(self, event):
         """Save the selected image."""
 
-        if not self.selected_filters:
+        if not self.selected_filter:
             print("❌ No image selected!")
             return
 
-        self.selected_image = {f: self.combined_images[f] for f in self.selected_filters}
-        self.selected_exposure_time = [self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.selected_filters]
-
-        self.other_frames_dict = {f: self.combined_images[f] for f in self.combined_images if f not in self.selected_filters}
-        self.other_frames_exptime_dict = {f: self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.combined_images if f not in self.selected_filters}
-
-        # print(self.other_frames_dict.keys())
-        #print(f"Stored {len(self.selected_images)} selected image(s) in memory.")
-        selected_info = [f"ℹ️  Selected Filter: {f}. Corresponding exposure time: {exptime} s." for f, exptime in zip(self.selected_filters, self.selected_exposure_time)]
+        # Store the selected combined images 
+        self.selected_image = {f: self.combined_images[f] for f in self.selected_filter}
+        self.selected_exposure_time = [self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.selected_filter]
+        self.selected_image_files = {f: self.combined_image_files[f] for f in self.selected_filter}
+        # Store other combined images outside of the selected image for later use
+        self.other_frames_dict = {f: self.combined_images[f] for f in self.combined_images if f not in self.selected_filter}
+        self.other_frames_exptime_dict = {f: self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.combined_images if f not in self.selected_filter}
+        self.other_frames_files_dict = {f: self.combined_image_files[f] for f in self.combined_images if f not in self.selected_filter}
+        
+        print(f"✅ Stored {len(self.selected_filter)} selected filter(s) in memory.")
+        selected_info = [f"ℹ️  Selected Filter: {f}. Corresponding exposure time: {exptime} s." for f, exptime in zip(self.selected_filter, self.selected_exposure_time)]
         selected_info_str = ', '.join(selected_info)
         print(f"{selected_info_str}")
         plt.close(self.fig)
@@ -312,9 +324,10 @@ class ReferenceImageSelector:
 class AperturePhotometryTool:
     """Class to perform aperture photometry on the image that is selected from the MedianImageSelector class."""
 
-    def __init__(self, selected_image, exposure_time):
+    def __init__(self, selected_image, exposure_time, image_files):
         self.selected_image = selected_image # Using the first selected image for display  
         self.selected_exposure_time = exposure_time
+        self.selected_image_files = image_files
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
         self.display_image()
@@ -387,8 +400,8 @@ class AperturePhotometryTool:
             new_y_lim = (y_lim[0] - dy, y_lim[1] - dy)
 
             # Get image dimensions
-            img_height = self.selected_image[list(self.selected_image.keys())[0]].shape[0]
-            img_width = self.selected_image[list(self.selected_image.keys())[0]].shape[1]
+            img_height = self.selected_image[list(self.selected_image.keys())[0]][0].shape[0]
+            img_width = self.selected_image[list(self.selected_image.keys())[0]][0].shape[1]
 
             # Define edge threshold for limiting dragging
             edge_threshold = 10
@@ -418,11 +431,12 @@ class AperturePhotometryTool:
         self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
 
         # Display selected image
-        for filter_name, image_data in self.selected_image.items():
-            norm = ImageNormalize(image_data, interval=ZScaleInterval())
-            img = self.ax.imshow(image_data, origin='lower', cmap='gray', norm=norm)
-            self.ax.set_title(f'Filter {filter_name}', fontsize=14)
-            self.ax.axis('off')
+        filter_name = list(self.selected_image.keys())[0]
+        reference = self.selected_image[filter_name][0]  # Display the first combined image for the selected filter
+        norm = ImageNormalize(reference, interval=ZScaleInterval())
+        img = self.ax.imshow(reference, origin='lower', cmap='gray', norm=norm)
+        self.ax.set_title(f'Filter {filter_name}', fontsize=14)
+        self.ax.axis('off')
     
     def zoom_image(self, event):
             """Zoom in and out of the image using the scroll wheel."""
@@ -447,8 +461,8 @@ class AperturePhotometryTool:
                 self.ax.set_ylim([ycenter - new_height / 2, ycenter + new_height / 2])
                 
                 # Get the original image dimensions
-                image_width = self.selected_image[list(self.selected_image.keys())[0]].shape[1] 
-                image_height = self.selected_image[list(self.selected_image.keys())[0]].shape[0]
+                image_width = self.selected_image[list(self.selected_image.keys())[0]][0].shape[1] 
+                image_height = self.selected_image[list(self.selected_image.keys())[0]][0].shape[0]
                 
                 # Set the limits to the original image dimensions if zoomed out too much
                 if new_width > image_width:
@@ -535,36 +549,31 @@ class AperturePhotometryTool:
         """Closes the window when 'Done' is clicked."""
 
         if not self.astroObjects_set and not self.bg_astroObjects_set:
-            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            print("❌ 'Done' pressed: No objects and no background region selected. Please, select objects and background region first.")
             return
         
         if not self.astroObjects_set:
-            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            print("❌ 'Done' pressed: No objects selected. Please, select objects first.")
             return
         
         if not self.bg_astroObjects_set:
-            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
+            print("❌ 'Done' pressed: No background region selected. Please, select background region first.")
             return
 
         if not self.photometry_dict:
             print("❌ 'Done' pressed: Please, perform aperture photometry first.")
             return
-        
-        # Number of objects selected in frame (number of stars + 1 background)
-        number_of_objects_selected = len(self.astroObjects_set) + len(self.bg_astroObjects_set) 
-
-        # Number of objects for which aperture photometry has been performed
-        number_of_objects_phot_performed = len(self.photometry_dict[list(self.photometry_dict.keys())[0]])
-
-        if number_of_objects_selected != number_of_objects_phot_performed:
-            print("❌ 'Done' pressed: Please, perform aperture photometry first.")
-            return
 
         filter_name = list(self.selected_image.keys())[0]
-        
+        photometry_key = f'Filter {filter_name}'
+
+        if photometry_key not in self.photometry_dict or self.photometry_dict[photometry_key].empty:
+            print(f"❌ 'Done' pressed: Photometry not completed for filter {filter_name}. Please, perform aperture photometry first.")
+            return
+
         print(f"✅✅✅ 'Done' pressed: Aperture photometry completed for {len(self.astroObjects_set)} stars.")
-        print(list(self.photometry_dict.keys())[0])
-        print(self.photometry_dict[f'Filter {filter_name}'])
+        print(photometry_key)
+        print(self.photometry_dict[photometry_key])
 
         plt.close(self.fig)      
 
@@ -572,7 +581,7 @@ class AperturePhotometryTool:
         """Callback function for the RectangleSelector widget."""
 
         # Takes the value of the first key in the dictionary (the image)
-        self.image_data = self.selected_image[list(self.selected_image.keys())[0]] 
+        self.image_data = self.selected_image[list(self.selected_image.keys())[0]][0] 
 
         # Will remove temporary contours if they exist
         if getattr(self, 'temp_contours', None):  
@@ -828,7 +837,7 @@ class AperturePhotometryTool:
             return
         
         # Takes the value of the first key in the dictionary (the image)
-        image_data = self.selected_image[list(self.selected_image.keys())[0]] 
+        image_data = self.selected_image[list(self.selected_image.keys())[0]][0]  # Get first image from the list
         filter_name = list(self.selected_image.keys())[0]
         exp_time = self.selected_exposure_time[0]
 
@@ -837,89 +846,87 @@ class AperturePhotometryTool:
         bg_radius = [b['radius'] for b in self.bg_apertures_dict[current_index]]
         self.bg_position = bg_position
         self.bg_radius = bg_radius
-        bg_photometry_table = pd.DataFrame({})
-
-        bg_row=[]
-
-        for i, (position, radius) in enumerate(zip(bg_position, bg_radius)):
-            bg_aperture = [CircularAperture(position, radius)]
-            
-            bg_phot_table = aperture_photometry(image_data, bg_aperture)
-
-            bg_row.append({
-                'Star': f'Background',
-                'X_Center': bg_phot_table['xcenter'][0],
-                'Y_Center': bg_phot_table['ycenter'][0],
-                'Radius': radius,
-                'Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
-                'Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5  # Absolute value since the background aperture sum may be negative
-            })
 
         # Aperture photometry of stars
-        positions = [a['center'] for a in self.reference_apertures_dict[current_index]]
-        radii = [b['radius'] for b in self.reference_apertures_dict[current_index]]
+        star_rows = []  # One row per combined image/bin
+        for img_index, (filter_name, image_list) in enumerate(self.selected_image.items()):
+            for bin_index, image_data in enumerate(image_list):
+                file_names = self.selected_image_files.get(filter_name, [])
+                file_label = file_names[bin_index] if bin_index < len(file_names) else f'Bin {bin_index + 1}'
+                positions = [a['center'] for a in self.reference_apertures_dict[current_index]]
+                radii = [b['radius'] for b in self.reference_apertures_dict[current_index]]
 
-        star_photometry_table = pd.DataFrame({})
+                bg_aperture = [CircularAperture(bg_position[0], bg_radius[0])]
+                bg_phot_table = aperture_photometry(image_data, bg_aperture)
 
-        star_rows=[]
+                row = {
+                    'Combined_File': file_label,
+                    'Background_X_Center': bg_phot_table['xcenter'][0],
+                    'Background_Y_Center': bg_phot_table['ycenter'][0],
+                    'Background_Radius': bg_radius[0],
+                    'Background_Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
+                    'Background_Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5
+                }
 
-        for i, (position, radius) in enumerate(zip(positions, radii)):
-            star_aperture = [CircularAperture(position, radius)]
+                for i, (position, radius) in enumerate(zip(positions, radii)):
+                    star_aperture = [CircularAperture(position, radius)]
+                    star_phot_table = aperture_photometry(image_data, star_aperture)
 
-            star_phot_table = aperture_photometry(image_data, star_aperture)
+                    # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
+                    #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
 
-            # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
-            #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
+                    # Getting the pixel areas of the star and background apertures
+                    n_pix = star_aperture[0].area
+                    n_b = bg_aperture[0].area
 
-            # Getting the pixel areas of the star and background apertures
-            n_pix = star_aperture[0].area
-            n_b = bg_aperture[0].area
+                    # Get the PER-PIXEL sky background (F_S) in e/pix
+                    F_bg_total = bg_phot_table['aperture_sum_0'][0] * gain
+                    sky_per_pixel = F_bg_total / n_b
 
-            # Get the PER-PIXEL sky background (F_S) in e/pix
-            F_bg_total = bg_phot_table['aperture_sum_0'][0] * gain
-            sky_per_pixel = F_bg_total / n_b
+                    # Get the NET star flux (F_*) in e/pix
+                    F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
+                    F_star_net = F_star_raw - (sky_per_pixel * n_pix)
 
-            # Get the NET star flux (F_*) in e/pix
-            F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
-            F_star_net = F_star_raw - (sky_per_pixel * n_pix)
+                    # Get Additional noise sources (read noise, dark current, flat noise)
+                    # NOTE: These are in ADU/pix, and will be converted to e/pix in the main equation
+                    F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]
+                    F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
+                    F_flat_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
 
-            # Get Additional noise sources (read noise, dark current, flat noise)
-            # NOTE: These are in ADU/pix, and will be converted to e/pix in the main equation
-            F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]
-            F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
-            F_flat_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
+                    # The Corrected Equation with Flat Noise
+                    noise = np.sqrt( 
+                        (F_star_net) + \
+                        n_pix * (1 + (n_pix / n_b)) * \
+                        ((sky_per_pixel) + \
+                        F_D_adu*gain + \
+                        (F_R_adu*gain)**2 + \
+                        (F_flat_adu*gain)**2 )
+                    )
+            
+                    #Calculating instrumental magnitude for the star
+                    star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
+                    inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
+                    inst_mag_err = (2.5 / np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
+                    #print(f"SNR for Star {i+1} in Filter {filter_name}: {F_star_net / noise:.2f}")
+                    row.update({
+                        f'X_Center_Star_{i+1}': star_phot_table['xcenter'][0],
+                        f'Y_Center_Star_{i+1}': star_phot_table['ycenter'][0],
+                        f'Radius_Star_{i+1}': radius,
+                        f'Net_Aperture_Sum_Star_{i+1}': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
+                        f'Net_Aperture_Sum_Error_Star_{i+1}': noise,
+                        f'Minst_Star_{i+1}': inst_mag,
+                        f'Minst_Error_Star_{i+1}': inst_mag_err
+                    })
 
-            # The Corrected Equation with Flat Noise
-            noise = np.sqrt( 
-                (F_star_net) + \
-                n_pix * (1 + (n_pix / n_b)) * \
-                ((sky_per_pixel) + \
-                F_D_adu*gain + \
-                (F_R_adu*gain)**2 + \
-                (F_flat_adu*gain)**2 )
-            )
+                star_rows.append(row)
 
-            #Calculating instrumental magnitude for the star
-            star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
-            inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
-            inst_mag_err = (2.5 / np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
-            #print(f"SNR for Star {i+1} in Filter {filter_name}: {F_star_net / noise:.2f}")
-            star_rows.append({
-                'Star': f'Star {i+1}',
-                'X_Center': star_phot_table['xcenter'][0],
-                'Y_Center': star_phot_table['ycenter'][0],
-                'Radius': radius, 
-                'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
-                'Net_Aperture_Sum_Error': noise,
-                'Minst': inst_mag,
-                "Minst_Error": inst_mag_err
-            })
 
         # Create the DataFrame
         star_photometry_table = pd.DataFrame(star_rows)
-        bg_photometry_table = pd.DataFrame(bg_row)
+        # bg_photometry_table = pd.DataFrame(bg_row)
+        self.photometry_dict = {f'Filter {filter_name}': star_photometry_table}
 
-        self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
+        # self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
         
         print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} stars.")
         print(list(self.photometry_dict.keys())[0])
@@ -927,12 +934,13 @@ class AperturePhotometryTool:
 
 class AperturePhotometryToolPart2:
 
-    def __init__(self, selected_image, exposure_time, other_frames_dict, other_frames_exptime_dict, bg_position, bg_radius, reference_apertures_dict, photometry_dict):
+    def __init__(self, selected_image, exposure_time, other_frames_dict, other_frames_exptime_dict, other_frames_files_dict, bg_position, bg_radius, reference_apertures_dict, photometry_dict):
         
         self.selected_image = selected_image # Using the first selected image for display  
         self.selected_exposure_time = exposure_time
         self.other_frames_dict = other_frames_dict
         self.other_frames_exptime_dict = other_frames_exptime_dict
+        self.other_frames_files_dict = other_frames_files_dict
         self.filters = list(self.other_frames_dict.keys())
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6)) # Create 2 subplots
         self.ax2.set_aspect('equal', adjustable='box')  # Set equal aspect ratio for the second subplot
@@ -1015,8 +1023,8 @@ class AperturePhotometryToolPart2:
             new_y_lim = (y_lim[0] - dy, y_lim[1] - dy)
 
             # Get image dimensions
-            img_height = self.other_frames_dict[list(self.other_frames_dict.keys())[0]].shape[0]
-            img_width = self.other_frames_dict[list(self.other_frames_dict.keys())[0]].shape[1]
+            img_height = self.other_frames_dict[list(self.other_frames_dict.keys())[0]][0].shape[0]
+            img_width = self.other_frames_dict[list(self.other_frames_dict.keys())[0]][0].shape[1]
 
             # Define edge threshold for limiting dragging
             edge_threshold = 10
@@ -1050,11 +1058,11 @@ class AperturePhotometryToolPart2:
         self.fig.text(0.99, 0.01, 'RETRHO at UF', fontsize=10, fontweight='bold', ha='right', va='bottom', alpha=0.35)
 
         # Display the selected image and the other frame side by side
-        reference_filter = list(self.selected_image.keys())[0]  # Get the filter name of the selected image
-        reference_data = self.selected_image[reference_filter]
+        reference_filter = list(self.selected_image.keys())[0][0]  # Get the filter name of the selected image
+        reference_data = self.selected_image[reference_filter][0]  # Get the first image from the list for that filter
 
         current_other_filter = self.filters[self.current_index]
-        current_other_data = self.other_frames_dict[current_other_filter]
+        current_other_data = self.other_frames_dict[current_other_filter][0]  # Get the first image from the list for that filter
 
         self.ax2.cla()  # Clear the right-hand axis before displaying the new image
 
@@ -1118,7 +1126,7 @@ class AperturePhotometryToolPart2:
 
         # Get the other-frame image dimensions (the one shown in ax2)
         current_filter = self.filters[self.current_index]
-        other_img = self.other_frames_dict[current_filter]
+        other_img = self.other_frames_dict[current_filter][0]  # Get the first image from the list for that filter
         image_width = other_img.shape[1]
         image_height = other_img.shape[0]
 
@@ -1229,7 +1237,7 @@ class AperturePhotometryToolPart2:
         
         # Takes the value of the first key in the dictionary (the image)
         current_index = self.filters[self.current_index]
-        self.image_data = self.other_frames_dict[current_index] 
+        self.image_data = self.other_frames_dict[current_index][0]  # Get first image from the list
 
         # Will remove temporary contours if they exist
         if getattr(self, 'temp_contours', None):  
@@ -1256,7 +1264,7 @@ class AperturePhotometryToolPart2:
         """
 
         current_index = self.filters[self.current_index]
-        self.image_data = self.other_frames_dict[current_index]
+        self.image_data = self.other_frames_dict[current_index][0]  # Get first image from the list
         sub_image = self.image_data[y:y + height, x:x + width]
 
         # Find the peak location in the sub-image
@@ -1373,7 +1381,7 @@ class AperturePhotometryToolPart2:
 
         self.index = (self.index + 1) % len(self.filters)
         next_filter_name = self.filters[self.index]
-        next_image_data = self.other_frames_dict[next_filter_name]
+        next_image_data = self.other_frames_dict[next_filter_name][0]  # Get the first image from the list for that filter
 
         self.current_index = self.index  # Update the current index to match the displayed filter
 
@@ -1404,7 +1412,7 @@ class AperturePhotometryToolPart2:
 
         self.index = (self.index - 1) % len(self.filters)
         prev_filter_name = self.filters[self.index]
-        prev_image_data = self.other_frames_dict[prev_filter_name]
+        prev_image_data = self.other_frames_dict[prev_filter_name][0]
 
         self.current_index = self.index  # Update the current index to match the displayed filter
 
@@ -1439,105 +1447,93 @@ class AperturePhotometryToolPart2:
             print("❌ 'Aperture Photometry' pressed: Please, add at least one star aperture.")
             return
         
-        for filter_name, image_data in self.other_frames_dict.items():
-
-            bg_photometry_table = pd.DataFrame({})
-
-            bg_row=[]
-            bg_sums=[]
-            bg_pixels=[]
-
-            for position, radius in zip(self.bg_position, self.bg_radius):
-                bg_aperture = CircularAperture(position, radius)
+        # Getting background radius and positions for the background apertures
+        bg_position = self.bg_position
+        bg_radius = self.bg_radius
+        for img_index, (filter_name, image_list) in enumerate(self.other_frames_dict.items()):
+            # Collect rows for this filter only
+            star_rows = []
+            for bin_index, image_data in enumerate(image_list):
+                file_names = self.other_frames_files_dict.get(filter_name, [])
+                file_label = file_names[bin_index] if bin_index < len(file_names) else f'Bin {bin_index + 1}'
+                positions = [a['center'] for a in self.apertures_dict[filter_name]]
+                radii = [b['radius'] for b in self.apertures_dict[filter_name]]
+                exp_time = self.other_frames_exptime_dict[filter_name]
+                bg_aperture = [CircularAperture(bg_position[0], bg_radius[0])]
                 bg_phot_table = aperture_photometry(image_data, bg_aperture)
 
-                # Mask to count pixels
-                mask = bg_aperture.to_mask(method='center')
-                n_pix_bg = np.sum(mask.data > 0)
+                row = {
+                    'Combined_File': file_label,
+                    'Background_X_Center': bg_phot_table['xcenter'][0],
+                    'Background_Y_Center': bg_phot_table['ycenter'][0],
+                    'Background_Radius': bg_radius[0],
+                    'Background_Net_Aperture_Sum': bg_phot_table['aperture_sum_0'][0],
+                    'Background_Net_Aperture_Sum_Error': (np.abs(bg_phot_table['aperture_sum_0'][0]))**0.5
+                }
 
-                F_bg = bg_phot_table['aperture_sum'][0]
+                for i, (position, radius) in enumerate(zip(positions, radii)):
+                    star_aperture = [CircularAperture(position, radius)]
+                    star_phot_table = aperture_photometry(image_data, star_aperture)
 
-                bg_row.append({
-                    'Star': f'Background',
-                    'X_Center': bg_phot_table['xcenter'][0],
-                    'Y_Center': bg_phot_table['ycenter'][0],
-                    'Radius': radius,
-                    'Net_Aperture_Sum': F_bg,
-                    'Net_Aperture_Sum_Error': np.sqrt(np.abs(F_bg))
-                }) 
+                    # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
+                    #                          Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
 
-                # For averaged background per pixel
-                bg_sums.append(F_bg)
-                bg_pixels.append(n_pix_bg)
+                    # Getting the pixel areas of the star and background apertures
+                    n_pix = star_aperture[0].area
+                    n_b = bg_aperture[0].area
 
-            F_bg_per_pixel = np.sum(bg_sums) / np.sum(bg_pixels)
-            n_b = np.sum(bg_pixels)
+                    # Get the PER-PIXEL sky background (F_S) in e/pix
+                    F_bg_total = bg_phot_table['aperture_sum_0'][0] * gain
+                    sky_per_pixel = F_bg_total / n_b
 
-            # Aperture photometry of stars
-            star_rows=[]
-            positions = [a['center'] for a in self.apertures_dict[filter_name]]
-            radii = [b['radius'] for b in self.apertures_dict[filter_name]]
-            exp_time = self.other_frames_exptime_dict[filter_name]
+                    # Get the NET star flux (F_*) in e/pix
+                    F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
+                    F_star_net = F_star_raw - (sky_per_pixel * n_pix)
 
+                    # Get Additional noise sources (read noise, dark current, flat noise)
+                    # NOTE: These are in ADU/pix, and will be converted to e/pix in the main equation
+                    F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]
+                    F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
+                    F_flat_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
 
-            for i, (position, radius) in enumerate(zip(positions, radii)):
-                star_aperture = [CircularAperture(position, radius)]
-                star_phot_table = aperture_photometry(image_data, star_aperture)
+                    # The Corrected Equation with Flat Noise
+                    noise = np.sqrt( 
+                        (F_star_net) + \
+                        n_pix * (1 + (n_pix / n_b)) * \
+                        ((sky_per_pixel) + \
+                        F_D_adu*gain + \
+                        (F_R_adu*gain)**2 + \
+                        (F_flat_adu*gain)**2 )
+                    )
+            
+                    #Calculating instrumental magnitude for the star
+                    star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
+                    inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
+                    inst_mag_err = (2.5 / np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
+                    #print(f"SNR for Star {i+1} in Filter {filter_name}: {F_star_net / noise:.2f}")
+                    row.update({
+                        f'X_Center_Star_{i+1}': star_phot_table['xcenter'][0],
+                        f'Y_Center_Star_{i+1}': star_phot_table['ycenter'][0],
+                        f'Radius_Star_{i+1}': radius,
+                        f'Net_Aperture_Sum_Star_{i+1}': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum_0'][0]),
+                        f'Net_Aperture_Sum_Error_Star_{i+1}': noise,
+                        f'Minst_Star_{i+1}': inst_mag,
+                        f'Minst_Error_Star_{i+1}': inst_mag_err
+                    })
 
-                # Uncertainty calculation (Following Karen A. Collins et al., 2017, Astroimagej: Image Processing and Photometric
-                #                         Extraction for Ultra-Precise Astronomical Light Curves, Appendix B, Equation 7)
+                star_rows.append(row)
 
-                # Getting the pixel areas of the star and background apertures
-                n_pix = star_aperture[0].area
-                n_back = bg_aperture.area
-
-                # Get the PER-PIXEL sky background (F_S) in e/pix
-                F_bg_total = bg_phot_table['aperture_sum'][0] * gain
-                sky_per_pixel = F_bg_total / n_b  
-
-                # Get the NET star flux (F_*) in e/pix
-                F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
-                F_star_net = F_star_raw - (sky_per_pixel * n_pix)
-
-                # Get Additional noise sources (read noise, dark current, flat noise)
-                # NOTE: These are in ADU/pix, and will be converted to e/pix in the main equation
-                F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{self.selected_exposure_time[0]}s', 'Uncertainty'].values[0]
-                F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
-                F_flat_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
-
-                # The Corrected Equation with Flat Noise
-                noise = np.sqrt( 
-                    (F_star_net) + \
-                    n_pix * (1 + (n_pix / n_back)) * \
-                    ((sky_per_pixel) + \
-                    F_D_adu*gain + \
-                    (F_R_adu*gain)**2 + \
-                    (F_flat_adu*gain)**2 )
-                )
-
-                #print(f"SNR for Star {i+1} in Filter {filter_name}: {F_star_net / noise:.2f}, Noise: {noise:.2f}")
-                
-                #Calculating instrumental magnitude for the star
-                star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
-                inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
-                inst_mag_err = (2.5/np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
-
-                star_rows.append({
-                    'Star': f'Star {i+1}',
-                    'X_Center': star_phot_table['xcenter'][0],
-                    'Y_Center': star_phot_table['ycenter'][0],
-                    'Radius': radius, 
-                    'Net_Aperture_Sum': (star_phot_table['aperture_sum_0'][0] - bg_phot_table['aperture_sum'][0]),
-                    'Net_Aperture_Sum_Error': noise,
-                    'Minst': inst_mag,
-                    "Minst_Error": inst_mag_err
-                })
-
+            # After processing all bins for this filter, save table for this filter only
+            star_photometry_table = pd.DataFrame(star_rows)
+            self.photometry_dict[f'Filter {filter_name}'] = star_photometry_table
+            print(f"🔵 Aperture photometry done for Filter {filter_name} ({len(star_photometry_table)} rows)")
+            print(self.photometry_dict[f'Filter {filter_name}'])
+       
             # Create the DataFrame
             star_photometry_table = pd.DataFrame(star_rows)
-            bg_photometry_table = pd.DataFrame(bg_row)
-            
-            self.photometry_dict[f'Filter {filter_name}'] = pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)
+            # bg_photometry_table = pd.DataFrame(bg_row)
+            self.photometry_dict[f'Filter {filter_name}'] = star_photometry_table
+            # self.photometry_dict[f'Filter {filter_name}'] = pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)
             print(f"🔵 Aperture photometry done for Filter {filter_name} "f"({len(star_photometry_table)} stars)")
             print(self.photometry_dict[f'Filter {filter_name}'])
 
@@ -1559,24 +1555,52 @@ if __name__ == '__main__':
     median_selected_image_class = ReferenceImageSelector(median_frame_info_df)
     plt.show()
 
+    aperture_photometry_class = None
+    aperture_photometrytool_part2 = None
+
     # If an image was selected, proceed to aperture photometry
     if median_selected_image_class.selected_image:
 
-        aperture_photometry_class = AperturePhotometryTool(median_selected_image_class.selected_image, median_selected_image_class.selected_exposure_time)
+        aperture_photometry_class = AperturePhotometryTool(
+            median_selected_image_class.selected_image,
+            median_selected_image_class.selected_exposure_time,
+            median_selected_image_class.selected_image_files
+        )
         plt.show()
 
-        # If aperture photometry was performed on reference frame, proceed to other frames
-        if aperture_photometry_class.photometry_dict:
-            aperture_photometrytool_part2 = AperturePhotometryToolPart2(median_selected_image_class.selected_image, median_selected_image_class.selected_exposure_time, median_selected_image_class.other_frames_dict, median_selected_image_class.other_frames_exptime_dict, aperture_photometry_class.bg_position, aperture_photometry_class.bg_radius, aperture_photometry_class.reference_apertures_dict, aperture_photometry_class.photometry_dict)
+        # Only run the second photometry tool when there are other filters to process
+        if aperture_photometry_class.photometry_dict and median_selected_image_class.other_frames_dict:
+            aperture_photometrytool_part2 = AperturePhotometryToolPart2(
+                median_selected_image_class.selected_image,
+                median_selected_image_class.selected_exposure_time,
+                median_selected_image_class.other_frames_dict,
+                median_selected_image_class.other_frames_exptime_dict,
+                median_selected_image_class.other_frames_files_dict,
+                aperture_photometry_class.bg_position,
+                aperture_photometry_class.bg_radius,
+                aperture_photometry_class.reference_apertures_dict,
+                aperture_photometry_class.photometry_dict
+            )
             plt.show()
 
     # Creating output directory for photometry tables if it doesn't exist
     output_dir = os.path.join(args.data[0], "Aperture_Photometry_Results")
     os.makedirs(output_dir, exist_ok=True)
 
-    # Saving photometry tables for each filter as CSV files
-    if hasattr(aperture_photometrytool_part2, 'photometry_dict'):
-        for filter_name, photometry_table in aperture_photometrytool_part2.photometry_dict.items():
-            output_path = os.path.join(output_dir, f'{object_name}_{filter_name}_Aperture_Photometry.csv')
-            photometry_table.to_csv(output_path, index=False)
-            print(f"📁 Photometry table for {filter_name} saved to {output_path}")
+    # Choose the photometry dictionary to save
+    photometry_output = {}
+    if aperture_photometrytool_part2 is not None and hasattr(aperture_photometrytool_part2, 'photometry_dict'):
+        photometry_output = aperture_photometrytool_part2.photometry_dict
+    elif aperture_photometry_class is not None and hasattr(aperture_photometry_class, 'photometry_dict'):
+        photometry_output = aperture_photometry_class.photometry_dict
+
+    for filter_name, photometry_table in photometry_output.items():
+        output_path = os.path.join(output_dir, f'{object_name}_{filter_name}_Aperture_Photometry.csv')
+        # Ensure existing file is removed so the new CSV overwrites cleanly
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except Exception:
+            pass
+        photometry_table.to_csv(output_path, index=False)
+        print(f"📁 Photometry table for {filter_name} saved to {output_path}")
