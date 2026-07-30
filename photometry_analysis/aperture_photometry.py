@@ -1522,12 +1522,6 @@ class AperturePhotometryToolPart2:
                     })
 
                 star_rows.append(row)
-
-            # After processing all bins for this filter, save table for this filter only
-            star_photometry_table = pd.DataFrame(star_rows)
-            self.photometry_dict[f'Filter {filter_name}'] = star_photometry_table
-            print(f"🔵 Aperture photometry done for Filter {filter_name} ({len(star_photometry_table)} rows)")
-            print(self.photometry_dict[f'Filter {filter_name}'])
        
             # Create the DataFrame
             star_photometry_table = pd.DataFrame(star_rows)
