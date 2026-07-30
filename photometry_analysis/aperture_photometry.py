@@ -571,9 +571,9 @@ class AperturePhotometryTool:
             print(f"❌ 'Done' pressed: Photometry not completed for filter {filter_name}. Please, perform aperture photometry first.")
             return
 
-        print(f"✅✅✅ 'Done' pressed: Aperture photometry completed for {len(self.astroObjects_set)} stars.")
-        print(photometry_key)
-        print(self.photometry_dict[photometry_key])
+        print(f"✅✅✅ 'Done' pressed: Aperture photometry completed for {len(self.astroObjects_set)} stars on Filter {filter_name}.")
+        # print(photometry_key)
+        # print(self.photometry_dict[photometry_key])
 
         plt.close(self.fig)      
 
@@ -928,7 +928,7 @@ class AperturePhotometryTool:
 
         # self.photometry_dict={f'Filter {filter_name}': pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)}
         
-        print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} stars.")
+        print(f"🔵 'Aperture Photometry' pressed: Aperture photometry performed for {len(star_photometry_table)} bins.")
         print(list(self.photometry_dict.keys())[0])
         print(self.photometry_dict[f'Filter {filter_name}'])
 
@@ -1528,7 +1528,7 @@ class AperturePhotometryToolPart2:
             # bg_photometry_table = pd.DataFrame(bg_row)
             self.photometry_dict[f'Filter {filter_name}'] = star_photometry_table
             # self.photometry_dict[f'Filter {filter_name}'] = pd.concat([star_photometry_table, bg_photometry_table], ignore_index=True)
-            print(f"🔵 Aperture photometry done for Filter {filter_name} "f"({len(star_photometry_table)} stars)")
+            print(f"🔵 Aperture photometry done for Filter {filter_name} "f"({len(star_photometry_table)} bins)")
             print(self.photometry_dict[f'Filter {filter_name}'])
 
 if __name__ == '__main__':
