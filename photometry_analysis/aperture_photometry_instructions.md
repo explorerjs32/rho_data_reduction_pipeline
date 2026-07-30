@@ -22,10 +22,11 @@ Run the tool from the command line:
 `python aperture_photometry.py -d </path/to/data_directory/>`
 
 **Terminal Binning Setup**
+
 For each unique filter detected in your dataset, the terminal will prompt you to define a binning size.
-    - Enter 1 to combine all images into one bin.
-    - Enter the total number of images to ensure no binning.
-    - Enter any other valid integer to split images into groups. These images would then combine and represent a datapoint per bin. * Note: the tool will reject inputs that causes a bin to contain less than two images. Please select a different integer value that would ensure that each bin contains more than 2 images.
+- Enter 1 to combine all images into one bin.
+- Enter the total number of images to ensure no binning.
+- Enter any other valid integer to split images into groups. These images would then combine and represent a datapoint per bin. * Note: the tool will reject inputs that causes a bin to contain less than two images. Please select a different integer value that would ensure that each bin contains more than 2 images.
 
 **Interactive Reference Image Selection**
 
