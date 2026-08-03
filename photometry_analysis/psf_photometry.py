@@ -19,14 +19,23 @@ import os
 from tqdm import tqdm
 from scipy import ndimage
 from PyQt5.QtWidgets import QApplication
+import tkinter as tk
+from tkinter import filedialog, messagebox, BooleanVar
 import sys
 
 
 class Compute_PSF_Photometry:
-    def __init__(self, frame_info_df, uncertainties_df):
+    def __init__(self, frame_info_df, uncertainties_df, num_bins=None, reference_image=None, reference_stars=None):
+        """
+        Initializes the photometry computation class, incorporating optional image binning 
+        and multi-filter reference plotting.
+        """
         self.frame_info = frame_info_df
         self.uncertainties_df = uncertainties_df
-        self.gain = 0.
+        self.gain = 0.37
+        self.num_bins = num_bins
+        self.reference_image = reference_image
+        self.reference_stars = reference_stars
         self.images = {}
         self.load_all_images()
         self.star_positions = {}  # {star_number: (x, y)}
@@ -52,7 +61,8 @@ class Compute_PSF_Photometry:
         
         # Create the figure with calculated size
         self.fig = plt.figure(num='PSF Photometry Tool', figsize=(width_inches, height_inches))
-        self.ax = self.fig.add_subplot(111)
+        
+        # Note: self.ax creation is moved to setup_plot() to handle dynamic subplots
         
         # Position window at the center of the screen
         manager = plt.get_current_fig_manager()
@@ -70,15 +80,18 @@ class Compute_PSF_Photometry:
 
     def zoom_image(self, event):
         """
-        Zoom in and out of the image using the scroll wheel.
+        Zoom in and out of the image using the scroll wheel on whichever axis is hovered.
         """
-        if event.inaxes == self.ax:
-            x, y = event.xdata, event.ydata
+        is_main_ax = event.inaxes == self.ax
+        is_ref_ax = hasattr(self, 'ax_ref') and event.inaxes == self.ax_ref
+        
+        if is_main_ax or is_ref_ax:
+            ax = event.inaxes
             scale_factor = 1.25 if event.button == 'down' else 0.75
             
             # Get current x and y limits
-            cur_xlim = self.ax.get_xlim()
-            cur_ylim = self.ax.get_ylim()
+            cur_xlim = ax.get_xlim()
+            cur_ylim = ax.get_ylim()
             
             # Calculate the new limits
             new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
@@ -87,51 +100,125 @@ class Compute_PSF_Photometry:
             xcenter = (cur_xlim[0] + cur_xlim[1]) / 2
             ycenter = (cur_ylim[0] + cur_ylim[1]) / 2
             
-            self.ax.set_xlim([xcenter - new_width / 2, xcenter + new_width / 2])
-            self.ax.set_ylim([ycenter - new_height / 2, ycenter + new_height / 2])
+            ax.set_xlim([xcenter - new_width / 2, xcenter + new_width / 2])
+            ax.set_ylim([ycenter - new_height / 2, ycenter + new_height / 2])
             
-            # Get the original image dimensions
-            image_width = self.image_data.shape[1]
-            image_height = self.image_data.shape[0]
+            # Get the original dimensions of the specific image hovered
+            img_shape = self.image_data.shape if is_main_ax else self.reference_image.shape
+            image_width = img_shape[1]
+            image_height = img_shape[0]
             
             # Set the limits to the original image dimensions if zoomed out too much
             if new_width > image_width:
-                self.ax.set_xlim(0, image_width)
+                ax.set_xlim(0, image_width)
                 
             if new_height > image_height:
-                self.ax.set_ylim(0, image_height)
+                ax.set_ylim(0, image_height)
                 
             self.fig.canvas.draw_idle()
 
     def load_all_images(self):
         """Load all images into memory."""
-        for _, row in self.frame_info.iterrows():
-            # Extract the image data
-            filepath = os.path.join(row['Directory'], row['File'])
-            self.images[row['File']] = fits.getdata(filepath)
-
-            # Get the gain of the detector from the FITS header
-            self.gain = fits.getheader(filepath).get('GAIN', self.gain)
+        num_images = len(self.frame_info)
+        
+        # Scenario A: 1 bin per image (No binning)
+        if self.num_bins is None or self.num_bins == num_images:
+            for idx, row in self.frame_info.iterrows():
+                filepath = os.path.join(row['Directory'], row['File'])
+                with fits.open(filepath) as hdul:
+                    self.images[row['File']] = hdul[0].data.astype(float)
+                    
+        # Scenario B: Image binning requested (num_bins < num_images)
+        else:
+            images_per_bin = num_images // self.num_bins
+            remaining_images = num_images % self.num_bins
+            
+            start_idx = 0
+            binned_records = []
+            
+            for i in range(self.num_bins):
+                # Calculate end index: distribute remainder across the first few bins
+                end_idx = start_idx + images_per_bin
+                if i < remaining_images:
+                    end_idx += 1
+                    
+                group_df = self.frame_info.iloc[start_idx:end_idx]
+                coadded_data = None
+                
+                # Loop through images in the current bin and sum their data arrays
+                for idx, row in group_df.iterrows():
+                    filepath = os.path.join(row['Directory'], row['File'])
+                    with fits.open(filepath) as hdul:
+                        data = hdul[0].data.astype(float)
+                        if coadded_data is None:
+                            coadded_data = data
+                        else:
+                            coadded_data += data  # Co-adding by summing the arrays
+                
+                # Use the first file's name in the bin as the representative key
+                representative_filename = group_df.iloc[0]['File']
+                self.images[representative_filename] = coadded_data
+                
+                # Keep the representative record for the binned image and log bin stats
+                record = group_df.iloc[0].copy()
+                record['File'] = representative_filename
+                record['Bin_Number'] = i + 1
+                record['Images_In_Bin'] = len(group_df)
+                binned_records.append(record)
+                
+                # Advance the start index for the next bin
+                start_idx = end_idx
+                
+            # Replace the original frame_info with the binned summary.
+            self.frame_info = pd.DataFrame(binned_records)
 
     def setup_plot(self):
-        """Initialize the plot with the first image."""
+        """Initialize the plot with the first image, and optionally a reference image."""
         first_file = self.frame_info['File'].iloc[0]
         self.image_data = self.images[first_file]
         
-        # Display the image
-        image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
-        self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
+        # If we have a reference image from a previous filter, create two stacked subplots
+        if self.reference_image is not None and self.reference_stars is not None:
+            self.ax_ref = self.fig.add_subplot(211)  # 2 rows, 1 col, top plot
+            self.ax = self.fig.add_subplot(212)      # 2 rows, 1 col, bottom plot
+            
+            # Plot reference image on the top
+            ref_norm = ImageNormalize(self.reference_image, interval=ZScaleInterval())
+            self.ax_ref.imshow(self.reference_image, origin='lower', cmap='gray', norm=ref_norm)
+            self.ax_ref.set_title("Reference Filter Stars")
+            
+            # Draw the previously selected stars on the reference image
+            for star_num, (x, y) in self.reference_stars.items():
+                self.ax_ref.plot(x, y, 'rx', markersize=8)
+                self.ax_ref.text(x + 15, y + 15, f'Star {star_num}', color='red', fontsize=10)
+            self.ax_ref.axis('off')
+            
+            # Plot current image on the bottom
+            image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
+            self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
+            self.ax.set_title(f"Current Filter: {self.frame_info['Filter'].iloc[0]}")
+            
+        else:
+            # First filter scenario: single plot
+            self.ax = self.fig.add_subplot(111)
+            image_norm = ImageNormalize(self.image_data, interval=ZScaleInterval())
+            self.ax.imshow(self.image_data, origin='lower', cmap='gray', norm=image_norm)
         
-        # Add image info text box
+        # Add image info text box anchored to the bottom of the active/current axis
         textstr = (f"File: {first_file}\n"
                   f"Object: {self.frame_info['Object'].iloc[0]}\n"
                   f"Exposure Time: {self.frame_info['Exptime'].iloc[0]} secs\n"
                   f"Filter: {self.frame_info['Filter'].iloc[0]}")
-        self.ax.text(0.02, 1.15, textstr, transform=self.ax.transAxes,
+                  
+        # Move the text box below the bottom left of the image (y = -0.10 relative to the axis)
+        self.ax.text(0.02, -0.10, textstr, transform=self.ax.transAxes,
                     bbox=dict(facecolor='white', alpha=0.8),
                     verticalalignment='top')
 
         self.ax.axis('off')
+        
+        # Adjust figure margins to ensure the text box and 'Done' button don't overlap
+        plt.subplots_adjust(bottom=0.25)
 
     def create_widgets(self):
         """Create the interface widgets."""
@@ -144,7 +231,7 @@ class Compute_PSF_Photometry:
         )
         
         # Done button
-        self.done_button_ax = plt.axes([0.13, 0.15, 0.25, 0.04])
+        self.done_button_ax = plt.axes([0.13, 0.05, 0.25, 0.04])
         self.done_button = Button(self.done_button_ax, 'Done with Star Selection')
         self.done_button.on_clicked(self.finish_selection)
         
@@ -318,48 +405,6 @@ class Compute_PSF_Photometry:
                 # Formula: N_eff = 4 * pi * sigma_x * sigma_y
                 npix_eff = 4 * np.pi * psf_model.x_stddev.value * psf_model.y_stddev.value
 
-                # ==========================================================
-                # --- TEMPORARY SANITY CHECK: FIRST IMAGE, FIRST STAR ---
-                # if filename == list(self.images.keys())[0] and star_num == 1:
-                #     print(f"\n--- SANITY CHECK: {filename}, Star {star_num} ---")
-                    
-                #     # 1. The Analytical Volume (Your formula)
-                #     # print(f"1. Analytical Gaussian Flux: {flux_adu:.2f} ADU")
-                    
-                #     # 2. The discrete sum of the generated model pixels (should be nearly identical to #1)
-                #     model_star_only = psf_model(x_grid, y_grid)
-                    
-                #     # 3. The raw sum of the data minus the fitted sky (will vary slightly due to noise/wings)
-                #     sky_level = fit_model[0].amplitude.value
-                #     data_bg_subtracted = star_cutout - sky_level
-                    
-                #     # --- Plotting ---
-                #     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-                    
-                #     # Panel 1: Original Data
-                #     im1 = ax1.imshow(star_cutout, origin='lower', cmap='viridis')
-                #     ax1.set_title("Original Data Cutout")
-                #     fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
-                    
-                #     # Panel 2: The Fitted Model (Star + Sky)
-                #     full_model_image = fit_model(x_grid, y_grid)
-                #     im2 = ax2.imshow(full_model_image, origin='lower', cmap='viridis')
-                #     ax2.set_title(f"Fitted Model (Sky: {sky_level:.1f})")
-                #     fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
-                    
-                #     # Panel 3: Residuals (Data - Model)
-                #     residuals = star_cutout - full_model_image
-                #     # Use a diverging colormap centered on 0 for residuals
-                #     vmax = np.max(np.abs(residuals))
-                #     im3 = ax3.imshow(residuals, origin='lower', cmap='RdBu_r', vmin=-vmax, vmax=vmax)
-                #     ax3.set_title("Residuals (Data - Model)")
-                #     fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
-                    
-                #     plt.suptitle("PSF Fit Sanity Check", fontsize=16)
-                #     plt.tight_layout()
-                #     plt.show()
-                # ==========================================================
-
                 # Calculate uncertainties
                 read_noise = self.uncertainties_df.loc['Read_Noise', 'Value']
                 dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Value']
@@ -414,26 +459,147 @@ class Compute_PSF_Photometry:
             results_df = results_df[['File', 'BJD'] + other_cols]
         
         return results_df
+    
+class DirectorySelectorApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Input directory for PSF Photometry")
+        self.reduced_dir = tk.StringVar()
+        self.output_dir = tk.StringVar()
+
+        self.dp_widgets = []
+        self.output_widgets = []
+        
+        self.current_row = 0
+
+        # Add buttons and labels for data directory selection
+        self.create_directory_selector("Reduced data directory", self.reduced_dir, self.current_row)
+        self.current_row += 1
+        self.create_directory_selector("Output directory", self.output_dir, self.current_row)
+        self.current_row += 1
+        # Submit button
+        self.submit_button = tk.Button(master, text="Submit", command=self.submit)
+        self.submit_button.grid(row=self.current_row, column=0, columnspan=2, pady=10)
+
+    def create_directory_selector(self, label, var, row):
+        label_widget = tk.Label(self.master, text=label)
+        label_widget.grid(row=row, column=0, sticky='w', padx=10, pady=5)
+
+        # Status label to confirm selection
+        status_label = tk.Label(self.master, text="Not selected", fg="red")
+        status_label.grid(row=row, column=2, sticky='w', padx=10)
+
+        # Pass label to update after directory selection
+        button_widget = tk.Button(self.master, text="Select", command=lambda: self.select_directory(var, label, status_label))
+        button_widget.grid(row=row, column=1, padx=10, pady=5)
+
+        return [label_widget, button_widget, status_label]
+
+    def select_directory(self, var, label, status_label):
+        start_dir = var.get() if var.get() else os.getcwd()
+        directory = filedialog.askdirectory(title=f"Select {label}", initialdir=start_dir)
+        if directory:
+            var.set(directory)
+            # Show path relative to current working directory
+            rel_path = os.path.relpath(directory, os.getcwd())
+            display_path = f"{rel_path}"
+            status_label.config(text=display_path, fg="green")
+            print(f"{label} selected: {directory}")
+        else:
+            status_label.config(text="Not selected", fg="red")
+
+    def submit(self):
+        #validate directories
+        missing=[]
+        if not self.reduced_dir.get():
+            missing.append("Missing reduced data directory")
+        
+        # If output directory is not selected, default to current working directory
+        if not self.output_dir.get():
+            self.output_dir.set(os.getcwd())
+            print("No output directory selected. Defaulting to current working directory.")
+
+        # Check if required files exist in the reduced data directory
+        reduced_dir = self.reduced_dir.get()
+        frame_info_file = os.path.join(reduced_dir, 'frame_info.csv')
+        uncertainties_file = os.path.join(reduced_dir, 'uncertainties.csv')
+        
+        if not os.path.exists(frame_info_file):
+            missing.append("frame_info.csv not found in reduced data directory, run image_reduction scripts before performing photometry")
+        if not os.path.exists(uncertainties_file):
+            missing.append("uncertainties.csv not found in reduced data directory, run image_reduction scripts before performing photometry")
+
+        if missing:
+            messagebox.showerror("Error", f"Errors:\n- " + "\n- ".join(missing))
+            return
+
+        self.master.destroy()
+
+    def get_args(self):
+        return {"d":self.reduced_dir.get(), "o":self.output_dir.get()}
+
+def main():
+    root = tk.Tk()
+    app = DirectorySelectorApp(root)
+    root.mainloop()
+
+    args = app.get_args()
+    print("Selected Reduced Data Directory:", args["d"])
+    print("Selected Output Directory:", args["o"])
+
+    class Args: pass
+    args_obj = Args()
+    for key, val in args.items():
+        setattr(args_obj, key, val)
+
+    return args_obj
 
 
 if __name__ == '__main__':
+    # Set up argument parsing, but make the arguments optional (required=False)
     parser = argparse.ArgumentParser(description="PSF Photometry Tool")
-    parser.add_argument('-d', '--data', type=str, required=True,
-                       help="Directories containing reduced images")
+    parser.add_argument('-d', '--data', type=str, required=False,
+                       help="Directory containing reduced images")
+    parser.add_argument('-o', '--output', type=str, required=False,
+                       help="Output directory for results (Optional)")
     
-    args = parser.parse_args()
+    parsed_args = parser.parse_args()
+
+    # Check if the user provided the data directory via the terminal
+    if parsed_args.data:
+        print("\nCommand-line arguments detected. Skipping UI...")
+        # Create an args object to match the structure expected by the rest of the script
+        class Args: pass
+        args = Args()
+        args.d = parsed_args.data
+        # Default to the current working directory if no output flag is provided
+        args.o = parsed_args.output if parsed_args.output else os.getcwd()
+    else:
+        # No command-line arguments provided, launch the directory selection UI
+        args = main()
+    
+    print(f"\nRETRHO Data Reduction Pipeline Initiated...\nPerforming PSF Photometry on Data")
 
     # Get the path to the frame information dataframe and the uncertainties file
-    frame_info_file = os.path.join(args.data, 'frame_info.csv')
-    uncertainties_file = os.path.join(args.data, 'uncertainties.csv')
+    frame_info_file = os.path.join(args.d, 'frame_info.csv')
+    uncertainties_file = os.path.join(args.d, 'uncertainties.csv')
 
     # Read in the frame info and uncertainties
     frame_info_df = pd.read_csv(frame_info_file, sep=' ')
     uncertainties_df = pd.read_csv(uncertainties_file, sep=' ', names=['id', 'Value'], index_col=0)
 
     # Add the directory to the frame info dataframe
-    frame_info_df['Directory'] = [args.data] * frame_info_df['File'].size
+    frame_info_df['Directory'] = [args.d] * frame_info_df['File'].size
     
+    # Verify all images are of the same object
+    unique_objects = frame_info_df['Object'].unique()
+    if len(unique_objects) > 1:
+        print("Warning: Multiple objects found in the data directories:")
+        for obj in unique_objects:
+            print(f"  - {obj}")
+        print("Please ensure all images are of the same object.")
+        exit(1)
+
     # Verify all images are of the same object
     unique_objects = frame_info_df['Object'].unique()
     if len(unique_objects) > 1:
@@ -446,25 +612,106 @@ if __name__ == '__main__':
     # Get object name for file naming
     object_name = frame_info_df['Object'].iloc[0]
 
-    # Run photometry
-    psf_photometry = Compute_PSF_Photometry(frame_info_df, uncertainties_df)
-    plt.show()
+    # Extract the unique filters and display how many images per filter are there
+    print(f"\n--- Image Summary for {object_name} ---")
+    if 'Filter' in frame_info_df.columns:
+        unique_filters = frame_info_df['Filter'].unique()
+        filter_counts = frame_info_df['Filter'].value_counts()
+        for filt, count in filter_counts.items():
+            print(f"  - Filter {filt}: {count} images")
+    else:
+        print(f"  - Total images: {len(frame_info_df)}")
+        unique_filters = ['None']
 
-    print("\nPhotometry complete.")
-
-    # After window is closed, results are computed automatically
     # Create output directory if it doesn't exist
-    output_dir = os.path.join(args.data, 'PSF_Photometry_Results/')
+    output_dir = os.path.join(args.o, 'PSF_Photometry_Results/')
     os.makedirs(output_dir, exist_ok=True)
 
-    # Save the results
-    output_file = os.path.join(output_dir, f"{object_name}_psf_photometry.csv")
+    # Initialize reference variables before looping through filters
+    reference_image = None
+    reference_stars = None
 
-    if psf_photometry.results_df is not None:
-        results_df = psf_photometry.results_df
-        results_df.to_csv(output_file, index=False)
-        print(f"\nResults saved to: {output_file}")
-        print(results_df)
+    for filt in unique_filters:
+        print(f"\n" + "="*50)
+        print(f" PROCESSING FILTER: {filt}")
+        print("="*50)
+        
+        # Subset the dataframe for the current filter
+        if filt != 'None':
+            filter_df = frame_info_df[frame_info_df['Filter'] == filt].copy()
+        else:
+            filter_df = frame_info_df.copy()
 
-    else:
-        print("\nNo results to save. Star selection may have been cancelled.")
+        # Define the number of bins (data points) from user input in the terminal
+        total_images = len(filter_df)
+        print(f"\n--- Image Binning Setup for Filter {filt} ---")
+        print(f"Total number of images available: {total_images}")
+        
+        while True:
+            try:
+                user_input = input(f"Enter the number of bins you want to create for Filter {filt} (1 means all the images will be co-added, {total_images} means no binning).: ")
+                num_bins = int(user_input)
+                
+                if not (1 <= num_bins <= total_images):
+                    print(f"Please enter an integer between 1 and {total_images}")
+                    continue
+                    
+                # Valid special cases: 1 bin (all images together) or num_bins == total_images (1 image per bin)
+                if num_bins == 1 or num_bins == total_images:
+                    break
+                    
+                # Check for forbidden cases where base images_per_bin is less than 2
+                images_per_bin = total_images // num_bins
+                if images_per_bin < 2:
+                    print("Number of bins not allowed, all bins must have more than 1 image. Please choose a smaller bin number.")
+                    continue
+                    
+                # If we get here, the input is valid
+                break
+                
+            except ValueError:
+                print("Invalid input. Please enter a numerical integer.")
+
+        # Calculate how the images will be distributed among bins for the summary printout
+        images_per_bin = total_images // num_bins
+        remainder = total_images % num_bins
+
+        print(f"\nCreating {num_bins} bin(s) for Filter {filt}...")
+        if num_bins == total_images:
+            print("  - Each bin will contain 1 image (No co-adding).")
+        elif num_bins == 1:
+            print(f"  - All {total_images} images will be co-added into 1 bin.")
+        elif remainder == 0:
+            print(f"  - Each bin will contain {images_per_bin} co-added images.")
+        else:
+            # Matches the distribution logic: remainder is spread across the first N bins
+            print(f"  - The first {remainder} bin(s) will contain {images_per_bin + 1} co-added images.")
+            print(f"  - The remaining {num_bins - remainder} bin(s) will contain {images_per_bin} co-added images.")
+        print("-" * 30)
+
+        # Run photometry for this specific filter subset
+        psf_photometry = Compute_PSF_Photometry(
+            filter_df, 
+            uncertainties_df, 
+            num_bins=num_bins,
+            reference_image=reference_image,
+            reference_stars=reference_stars
+        )
+        plt.show()
+
+        # Capture the image and star positions from the FIRST filter to serve as a reference for the rest
+        if reference_image is None and psf_photometry.star_positions:
+            reference_image = psf_photometry.image_data
+            reference_stars = psf_photometry.star_positions
+
+        print(f"\nPhotometry complete for Filter {filt}.")
+
+        # Save the results, injecting the filter name into the output file
+        output_file = os.path.join(output_dir, f"{object_name}_{filt}_psf_photometry_{num_bins}_bins.csv")
+
+        if psf_photometry.results_df is not None:
+            results_df = psf_photometry.results_df
+            results_df.to_csv(output_file, index=False)
+            print(f"\nResults saved to: {output_dir}")
+        else:
+            print(f"\nNo results to save for Filter {filt}. Star selection may have been cancelled.")
