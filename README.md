@@ -10,11 +10,11 @@ Welcome to the RETRHO data reduction pipeline repository! Here, you will find th
 
 ## Features and Tools
 - [Image Reduction](./data_reduction_codes/README.md#image-reduction)
-    - [Interactive Image Reduction](./data_reduction_codes/interactive-image-reduction.md)
-    - [Interactive Image Alignment](./data_reduction_codes/image_alignment_instructions.md)
+    - [Interactive Image Reduction](./data_reduction_codes/README.md#interactive-image-reduction)
+    - [Interactive Image Alignment](./data_reduction_codes/README.md#interactive-manual-alignment-tool)
 - [Photometry Analysis](./photometry_analysis/README.md)
-    - [Aperture Photometry Tool](./photometry_analysis/aperture_photometry_instructions.md)
-    - [PSF Photometry Tool](./photometry_analysis/psf_photometry_instructions.md)
+    - [Aperture Photometry Tool](./photometry_analysis/README.md#1-aperture-photometry-tool)
+    - [PSF Photometry Tool](./photometry_analysis/README.md#2-psf-photometry-tool)
     
 
 ## Installation
