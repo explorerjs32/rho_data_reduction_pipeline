@@ -556,29 +556,10 @@ def main():
 
 
 if __name__ == '__main__':
-    # Set up argument parsing, but make the arguments optional (required=False)
-    parser = argparse.ArgumentParser(description="PSF Photometry Tool")
-    parser.add_argument('-d', '--data', type=str, required=False,
-                       help="Directory containing reduced images")
-    parser.add_argument('-o', '--output', type=str, required=False,
-                       help="Output directory for results (Optional)")
+    # Launch the directory selection UI
+    args = main()
     
-    parsed_args = parser.parse_args()
-
-    # Check if the user provided the data directory via the terminal
-    if parsed_args.data:
-        print("\nCommand-line arguments detected. Skipping UI...")
-        # Create an args object to match the structure expected by the rest of the script
-        class Args: pass
-        args = Args()
-        args.d = parsed_args.data
-        # Default to the current working directory if no output flag is provided
-        args.o = parsed_args.output if parsed_args.output else os.getcwd()
-    else:
-        # No command-line arguments provided, launch the directory selection UI
-        args = main()
-    
-    print(f"\nRETRHO Data Reduction Pipeline Initiated...\nPerforming PSF Photometry on Data")
+    print(f"RETRHO Data Reduction Pipeline Initiated...\nPerforming PSF Photometry on Data")
 
     # Get the path to the frame information dataframe and the uncertainties file
     frame_info_file = os.path.join(args.d, 'frame_info.csv')
