@@ -516,8 +516,8 @@ class DirectorySelectorApp:
         
         # If output directory is not selected, default to current working directory
         if not self.output_dir.get():
-            self.output_dir.set(os.getcwd())
-            print("No output directory selected. Defaulting to current working directory.")
+            self.output_dir.set(self.reduced_dir.get())
+            print("No output directory selected. Defaulting to data directory.")
 
         # Check if required files exist in the reduced data directory
         reduced_dir = self.reduced_dir.get()
