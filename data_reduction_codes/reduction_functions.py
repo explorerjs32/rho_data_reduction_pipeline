@@ -818,6 +818,24 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
 
     return reduced_frames_info
 
+def _simbad_coords_to_strings(result_table):
+    """
+    Extract (RA, DEC) sexagesimal strings from a SIMBAD query result.
+
+    astroquery >= 0.4.8 returns lowercase 'ra'/'dec' columns in degrees, while older
+    versions return uppercase 'RA'/'DEC' columns as sexagesimal strings (hourangle, deg).
+    """
+    cols = {c.lower(): c for c in result_table.colnames}
+    ra = result_table[cols['ra']][0]
+    dec = result_table[cols['dec']][0]
+    if isinstance(ra, str):
+        coord = SkyCoord(ra, dec, unit=(u.hourangle, u.deg))
+    else:
+        coord = SkyCoord(ra, dec, unit=(u.deg, u.deg))
+    ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
+    dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
+    return ra_str, dec_str
+
 def query_object_coordinates(object_name):
     """
     Query SIMBAD database for object coordinates with user interaction.
@@ -846,14 +864,8 @@ def query_object_coordinates(object_name):
         result_table = Simbad.query_object(object_name)
         
         if result_table is not None and len(result_table) > 0:
-            ra = result_table['ra'][0]
-            dec = result_table['dec'][0]
-            coord = SkyCoord(ra, dec, unit=(u.deg, u.deg))
-                
-                # Convert to the format expected (sexagesimal strings)
-            ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
-            dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
-                
+            ra_str, dec_str = _simbad_coords_to_strings(result_table)
+
             print(f"\n Found coordinates in SIMBAD:")
             print(f"  RA:  {ra_str}")
             print(f"  DEC: {dec_str}")
@@ -893,14 +905,7 @@ def query_object_coordinates(object_name):
                 result_table = Simbad.query_object(custom_name)
                 
                 if result_table is not None and len(result_table) > 0:
-                    ra = result_table['ra'][0]
-                    dec = result_table['dec'][0]
-                    # Validate the coordinates by parsing them
-                    coord = SkyCoord(ra, dec, unit=(u.hour, u.deg))
-                    
-                    # Convert to the format expected (sexagesimal strings)
-                    ra_str = coord.ra.to_string(unit=u.hour, sep=':', precision=2, pad=True)
-                    dec_str = coord.dec.to_string(unit=u.degree, sep=':', precision=1, pad=True, alwayssign=True)
+                    ra_str, dec_str = _simbad_coords_to_strings(result_table)
                     print(f"\n Found coordinates:")
                     print(f"  RA:  {ra_str}")
                     print(f"  DEC: {dec_str}")
