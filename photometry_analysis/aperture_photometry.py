@@ -82,7 +82,8 @@ def get_frame_info(directories):
                 filters.append(header.get('FILTER', 'Unknown'))
                 exposure_times.append(header.get('EXPTIME', 'Unknown'))
                 gain = header.get('GAIN', 'Unknown')
-
+                if gain == 'Unknown':
+                    gain = 0.37
             except Exception as e:
                 print(f"Error processing file {file} in {directory}: {e}")
                 continue
@@ -207,11 +208,11 @@ class ReferenceImageSelector:
                         print(f"Please enter a number between 1 and {len(file_data)}.")
                         continue
                     
-                    number_of_images_per_bin = len(file_data) // num_bins
-                    if number_of_images_per_bin < 2:
-                        print(f"Warning: {len(file_data)} images divided into {num_bins} bins results in {number_of_images_per_bin} images per bin.")
-                        print("It's recommended to have at least 2 images per bin for effective combination. " "Please choose another number of bins." )
-                        continue
+                    # number_of_images_per_bin = len(file_data) // num_bins
+                    # # if number_of_images_per_bin < 2:
+                    #     print(f"Warning: {len(file_data)} images divided into {num_bins} bins results in {number_of_images_per_bin} images per bin.")
+                    #     print("It's recommended to have at least 2 images per bin for effective combination. " "Please choose another number of bins." )
+                    #     continue
                     
                     self.num_bins_dict[filter] = num_bins
                     break
@@ -904,9 +905,11 @@ class AperturePhotometryTool:
                     )
             
                     #Calculating instrumental magnitude for the star
-                    star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
-                    inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
-                    inst_mag_err = (2.5 / np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
+                    # star_count_rate = star_phot_table['aperture_sum_0'][0] / exp_time
+                    # inst_mag = -2.5 * np.log10(star_count_rate) if star_count_rate > 0 else np.inf
+                    # inst_mag_err = (2.5 / np.log(10)) * (noise / star_phot_table['aperture_sum_0'][0]) if star_phot_table['aperture_sum_0'][0] > 0 else np.inf
+                    inst_mag = -2.5 *np.log10(F_star_net / exp_time) if F_star_net > 0 else np.inf
+                    inst_mag_err = (2.5 / np.log(10)) * (noise / F_star_net) if F_star_net > 0 else np.inf
                     #print(f"SNR for Star {i+1} in Filter {filter_name}: {F_star_net / noise:.2f}")
                     row.update({
                         f'X_Center_Star_{i+1}': star_phot_table['xcenter'][0],
