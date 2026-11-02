@@ -32,11 +32,12 @@ class Compute_PSF_Photometry:
         """
         self.frame_info = frame_info_df
         self.uncertainties_df = uncertainties_df
-        self.gain = 0.37
+        self.gain = uncertainties_df.loc['Gain', 'Value']
         self.num_bins = num_bins
         self.reference_image = reference_image
         self.reference_stars = reference_stars
         self.images = {}
+        self.sky_subtracted = {}  # Sky level the reduction subtracted from each (co-added) image [ADU/pix]
         self.load_all_images()
         self.star_positions = {}  # {star_number: (x, y)}
         self.photometry = {}      # {filename: {star_number: flux}
@@ -127,7 +128,8 @@ class Compute_PSF_Photometry:
                 filepath = os.path.join(row['Directory'], row['File'])
                 with fits.open(filepath) as hdul:
                     self.images[row['File']] = hdul[0].data.astype(float)
-                    
+                    self.sky_subtracted[row['File']] = hdul[0].header.get('SKYSUB', 0.)
+
         # Scenario B: Image binning requested (num_bins < num_images)
         else:
             images_per_bin = num_images // self.num_bins
@@ -144,20 +146,23 @@ class Compute_PSF_Photometry:
                     
                 group_df = self.frame_info.iloc[start_idx:end_idx]
                 coadded_data = None
-                
+                coadded_sky = 0.
+
                 # Loop through images in the current bin and sum their data arrays
                 for idx, row in group_df.iterrows():
                     filepath = os.path.join(row['Directory'], row['File'])
                     with fits.open(filepath) as hdul:
                         data = hdul[0].data.astype(float)
+                        coadded_sky += hdul[0].header.get('SKYSUB', 0.)
                         if coadded_data is None:
                             coadded_data = data
                         else:
                             coadded_data += data  # Co-adding by summing the arrays
-                
+
                 # Use the first file's name in the bin as the representative key
                 representative_filename = group_df.iloc[0]['File']
                 self.images[representative_filename] = coadded_data
+                self.sky_subtracted[representative_filename] = coadded_sky
                 
                 # Keep the representative record for the binned image and log bin stats
                 record = group_df.iloc[0].copy()
@@ -171,6 +176,16 @@ class Compute_PSF_Photometry:
                 
             # Replace the original frame_info with the binned summary.
             self.frame_info = pd.DataFrame(binned_records)
+
+    def get_master_dark_noise(self, exptime):
+        """
+        Uncertainty of a pixel of the master dark subtracted from frames with this exposure time [ADU]. Uses the master
+        dark closest in exposure time, the same one the reduction subtracted.
+        """
+        dark_keys = [key for key in self.uncertainties_df.index if key.startswith('Master_Dark_Noise_')]
+        dark_times = [float(key[len('Master_Dark_Noise_'):-1]) for key in dark_keys]
+        closest_key = dark_keys[int(np.argmin(np.abs(np.array(dark_times) - float(exptime))))]
+        return self.uncertainties_df.loc[closest_key, 'Value']
 
     def setup_plot(self):
         """Initialize the plot with the first image, and optionally a reference image."""
@@ -406,26 +421,37 @@ class Compute_PSF_Photometry:
                 npix_eff = 4 * np.pi * psf_model.x_stddev.value * psf_model.y_stddev.value
 
                 # Calculate uncertainties
-                read_noise = self.uncertainties_df.loc['Read_Noise', 'Value']
-                dark_current = self.uncertainties_df.loc[f'Dark_Current_{exptime}s', 'Value']
-                flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Value']
                 gain = self.gain
+                read_noise = self.uncertainties_df.loc['Read_Noise', 'Value'] * gain                  # [e-]
+                dark_per_frame = self.uncertainties_df.loc['Dark_Current_Rate', 'Value'] * exptime    # [e-/pix]
+                master_dark_noise = self.get_master_dark_noise(exptime) * gain                         # [e-/pix]
+                flat_noise = self.uncertainties_df.loc[f'Flat_{filter_}_Noise', 'Value']               # fractional
+
+                # Sky per pixel [e-]: the level the reduction subtracted (its photon noise is still in the image)
+                # plus any residual sky pedestal fitted here
+                sky = (self.sky_subtracted[filename] + max(fit_model[0].amplitude.value, 0)) * gain
 
                 # Calculate flux and store results
                 flux_out = flux_adu* gain
                 self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
-                
+
                 # Number of frames co-added into this image (1 when no binning was requested)
                 n_frames = frame_row.get('Images_In_Bin', 1)
 
-                # Calculate flux uncertainty. The flux comes from the co-added image, so its shot noise already
+                # Calculate flux uncertainty. The flux and sky come from the co-added image, so their shot noise already
                 # includes all frames; dark and read noise are per-frame values and are added once per frame.
-                # The flat noise is a fractional per-pixel error: summing (pixel * flat_noise)^2 over a Gaussian
-                # PSF gives (flat_noise * flux)^2 / npix_eff.
+                # Dark subtraction removes the mean dark signal but not the Poisson noise of the dark electrons
+                # collected in each frame, which is the dark term here.
+                # The master dark and flat are the same in every frame, so their errors add up coherently in a sum of
+                # frames: the master dark noise grows as N^2, and the fractional flat noise scales with the summed flux.
+                # This is exact when the stars stay on the same detector pixels (minimal drift), an upper limit otherwise.
+                # Summing (pixel * flat_noise)^2 over a Gaussian PSF gives (flat_noise * flux)^2 / npix_eff.
                 flux_noise = np.sqrt(
                     (flux_out) + # Shot noise
-                    (npix_eff * n_frames * dark_current * gain) +  # Dark current noise
-                    (npix_eff * n_frames * (read_noise * gain)**2) +  # Read noise
+                    (npix_eff * sky) +  # Sky noise
+                    (npix_eff * n_frames * dark_per_frame) +  # Dark current noise
+                    (npix_eff * n_frames * read_noise**2) +  # Read noise
+                    (npix_eff * n_frames**2 * master_dark_noise**2) +  # Master dark noise
                     ((flat_noise * flux_out)**2 / npix_eff)  # Flat field noise
                 )
                 self.photometry[filename][f"Flux_err_Star_{star_num}"] = flux_noise
@@ -522,8 +548,8 @@ class DirectorySelectorApp:
         
         # If output directory is not selected, default to current working directory
         if not self.output_dir.get():
-            self.output_dir.set(os.getcwd())
-            print("No output directory selected. Defaulting to current working directory.")
+            self.output_dir.set(self.reduced_dir.get())
+            print("No output directory selected. Defaulting to data directory.")
 
         # Check if required files exist in the reduced data directory
         reduced_dir = self.reduced_dir.get()
@@ -574,6 +600,12 @@ if __name__ == '__main__':
     # Read in the frame info and uncertainties
     frame_info_df = pd.read_csv(frame_info_file, sep=' ')
     uncertainties_df = pd.read_csv(uncertainties_file, sep=' ', names=['id', 'Value'], index_col=0)
+
+    # Files written before the noise model was updated store different keys
+    if 'Dark_Current_Rate' not in uncertainties_df.index:
+        print(f"{uncertainties_file} was made by an older version of the reduction pipeline. "
+              "Re-run the image reduction to create it with the current noise model.")
+        exit(1)
 
     # Add the directory to the frame info dataframe
     frame_info_df['Directory'] = [args.d] * frame_info_df['File'].size

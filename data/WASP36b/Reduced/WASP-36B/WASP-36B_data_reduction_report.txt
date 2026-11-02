@@ -18,6 +18,7 @@ Done!
 
 Creating Master Darks...
 Master_dark_150.0s created. 10 frames were found
+Dark current rate: 0.308 e-/pixel/s
 Done!
 
 Creating Master Flats...

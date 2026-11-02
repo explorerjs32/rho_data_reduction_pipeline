@@ -58,6 +58,11 @@ def get_frame_info(directories):
         uncertainties_file_path = os.path.join(directory, 'uncertainties.csv')
         uncertainties_df = pd.read_csv(uncertainties_file_path, sep=" ", names=["Key", "Uncertainty"])
 
+        # Files written before the noise model was updated store different keys
+        if 'Dark_Current_Rate' not in uncertainties_df['Key'].values:
+            raise KeyError(f"{uncertainties_file_path} was made by an older version of the reduction pipeline. "
+                           "Re-run the image reduction to create it with the current noise model.")
+
 
         """ Note: The wcs file is currently not being used in the code, but it is being read in case it is needed for future updates."""
         # Obtaining the wcs file within directory
@@ -98,26 +103,49 @@ def get_frame_info(directories):
 
     return reduced_frame_info
 
-def aperture_flux_noise(image_data, star_aperture, F_star_net, sky_per_pixel, n_pix, n_b, n_frames,
-                        dark_adu, read_noise_adu, flat_noise_frac):
+def get_uncertainty(key):
+    """Returns a value from the uncertainties.csv file written by the reduction pipeline."""
+    return uncertainties_df.loc[uncertainties_df['Key'] == key, 'Uncertainty'].values[0]
+
+def get_master_dark_noise(exp_time):
+    """
+    Uncertainty of a pixel of the master dark subtracted from frames with this exposure time [ADU]. Uses the master dark
+    closest in exposure time, the same one image_reduction subtracted.
+    """
+    dark_keys = [key for key in uncertainties_df['Key'] if key.startswith('Master_Dark_Noise_')]
+    dark_times = [float(key[len('Master_Dark_Noise_'):-1]) for key in dark_keys]
+    closest_key = dark_keys[int(np.argmin(np.abs(np.array(dark_times) - float(exp_time))))]
+    return get_uncertainty(closest_key)
+
+def aperture_flux_noise(image_data, star_aperture, F_star_net, sky_per_pixel, n_pix, n_b, n_frames, exp_time, filter_name):
     """
     Uncertainty [e-] of the net star flux measured on a sum of n_frames reduced images.
 
-    Follows Collins et al. 2017 (AstroImageJ), Appendix B, Eq. 7, extended for co-added frames:
-        sigma^2 = F_* + n_pix (1 + n_pix/n_b) (S + N (D + RN^2)) + sum_ap (R_i sigma_f)^2
+    Follows Collins et al. 2017 (AstroImageJ), Appendix B, Eq. 7, extended for co-added frames
+    and for the noise of the master dark and flat:
+        sigma^2 = F_* + n_pix (1 + n_pix/n_b) (S + N (D + RN^2)) + n_pix N^2 sigma_MD^2 + sum_ap (R_i sigma_f)^2
 
-    F_* and S are measured on the summed image, so they already include all N frames.
-    Dark and read noise are per-frame values, so they are added once per frame (x N).
-    The flat noise is a fractional per-pixel error; the same flat divides every frame,
-    so it scales with the summed signal in each pixel rather than with N.
+    F_* and the sky S [e-/pix] are totals over the summed image, so they already include all N frames.
+    Dark (D = dark rate x exposure time) and read noise are per-frame values, so they are added once per frame (x N).
+    Dark subtraction removes the mean dark signal but not the Poisson noise of the dark electrons collected in each
+    frame, which is the D term.
+    The master dark and flat are the same in every frame, so their errors add up coherently in a sum of frames:
+    the master dark noise grows as N^2, and the fractional flat noise scales with the summed signal in each pixel.
+    This is exact when the stars stay on the same detector pixels (minimal drift) and an upper limit otherwise.
     """
+    dark_per_frame = get_uncertainty('Dark_Current_Rate') * exp_time               # [e-/pix]
+    read_noise = get_uncertainty('Read_Noise') * gain                                # [e-]
+    master_dark_noise = get_master_dark_noise(exp_time) * gain                      # [e-/pix]
+    flat_noise_frac = get_uncertainty(f'Flat_{filter_name}_Noise')                   # fractional
+
     # Sum of the squared pixel values in the aperture [e-^2], for the flat-field term
     sum_pixels_squared = aperture_photometry(image_data**2, [star_aperture])['aperture_sum_0'][0] * gain**2
 
     return np.sqrt(
         F_star_net +
         n_pix * (1 + (n_pix / n_b)) *
-        (sky_per_pixel + n_frames * (dark_adu * gain + (read_noise_adu * gain)**2)) +
+        (max(sky_per_pixel, 0) + n_frames * (dark_per_frame + read_noise**2)) +
+        n_pix * n_frames**2 * master_dark_noise**2 +
         flat_noise_frac**2 * sum_pixels_squared
     )
 
@@ -141,9 +169,10 @@ class ReferenceImageSelector:
         self.other_frames_dict = {}
         self.other_frames_exptime_dict = {}
         self.filtered_file_names_dict = {}
+        self.filtered_sky_dict = {}  # Sky level subtracted from each image by the reduction (SKYSUB) [ADU/pix]
         self.combined_images = {}
         self.combined_image_files = {}
-        self.combined_image_counts = {}  # Number of frames summed into each combined image
+        self.combined_image_info = {}  # Number of frames and total subtracted sky of each combined image
         self.num_bins_dict = {}
         self.parse_filter_data()
         self.bin_setup() # Call bin_setup before widget display
@@ -186,6 +215,7 @@ class ReferenceImageSelector:
             if filter_name not in self.filtered_images_dict:
                 self.filtered_images_dict[filter_name] = []
                 self.filtered_file_names_dict[filter_name] = []
+                self.filtered_sky_dict[filter_name] = []
                 # Appending the file information to the median_frame_info DataFrame
                 new_row = pd.DataFrame([{
                     'Directory': directory,
@@ -203,6 +233,7 @@ class ReferenceImageSelector:
                     file_data = hdul[0].data.astype(float)
                     self.filtered_images_dict[filter_name].append(file_data)
                     self.filtered_file_names_dict[filter_name].append(file)
+                    self.filtered_sky_dict[filter_name].append(hdul[0].header.get('SKYSUB', 0.))
             except Exception as e:
                 print(f"Error reading file {file} for filter {filter_name}: {e}")
 
@@ -225,8 +256,7 @@ class ReferenceImageSelector:
             while True:
                 try:
                     num_bins = int(
-                        input(f'How many bins do you want for filter {filter}?\n '
-                            f'(Enter a number between 1 and {len(file_data)}): ' ))
+                        input(f"Enter the number of bins you want to create for Filter {filter} (1 means all the images will be co-added, {len(file_data)} means no binning).: " ))
 
                     if num_bins < 1 or num_bins > len(file_data):
                         print(f"Please enter a number between 1 and {len(file_data)}.")
@@ -256,7 +286,7 @@ class ReferenceImageSelector:
             images_per_bin = num_images // num_bins
             self.combined_images[filter] = []
             self.combined_image_files[filter] = []
-            self.combined_image_counts[filter] = []
+            self.combined_image_info[filter] = []
 
             for i in range(num_bins):
                 start_index = i * images_per_bin
@@ -270,7 +300,10 @@ class ReferenceImageSelector:
                 combined_file_name = bin_file_names[0] if bin_file_names else ''
                 self.combined_images[filter].append(np.sum(bin_images, axis = 0))
                 self.combined_image_files[filter].append(combined_file_name)
-                self.combined_image_counts[filter].append(len(bin_images))
+                self.combined_image_info[filter].append({
+                    'n_frames': len(bin_images),
+                    'sky_subtracted': np.sum(self.filtered_sky_dict[filter][start_index:end_index])  # [ADU/pix]
+                })
 
     def display_images(self):
             """Displays all median combined images."""
@@ -337,12 +370,12 @@ class ReferenceImageSelector:
         self.selected_image = {f: self.combined_images[f] for f in self.selected_filter}
         self.selected_exposure_time = [self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.selected_filter]
         self.selected_image_files = {f: self.combined_image_files[f] for f in self.selected_filter}
-        self.selected_image_counts = {f: self.combined_image_counts[f] for f in self.selected_filter}
+        self.selected_image_info = {f: self.combined_image_info[f] for f in self.selected_filter}
         # Store other combined images outside of the selected image for later use
         self.other_frames_dict = {f: self.combined_images[f] for f in self.combined_images if f not in self.selected_filter}
         self.other_frames_exptime_dict = {f: self.frame_info.loc[self.frame_info['Filter'] == f, 'Exptime'].values[0] for f in self.combined_images if f not in self.selected_filter}
         self.other_frames_files_dict = {f: self.combined_image_files[f] for f in self.combined_images if f not in self.selected_filter}
-        self.other_frames_counts_dict = {f: self.combined_image_counts[f] for f in self.combined_images if f not in self.selected_filter}
+        self.other_frames_info_dict = {f: self.combined_image_info[f] for f in self.combined_images if f not in self.selected_filter}
 
         print(f"✅ Stored {len(self.selected_filter)} selected filter(s) in memory.")
         selected_info = [f"ℹ️  Selected Filter: {f}. Corresponding exposure time: {exptime} s." for f, exptime in zip(self.selected_filter, self.selected_exposure_time)]
@@ -353,11 +386,11 @@ class ReferenceImageSelector:
 class AperturePhotometryTool:
     """Class to perform aperture photometry on the image that is selected from the MedianImageSelector class."""
 
-    def __init__(self, selected_image, exposure_time, image_files, image_counts):
+    def __init__(self, selected_image, exposure_time, image_files, image_info):
         self.selected_image = selected_image # Using the first selected image for display
         self.selected_exposure_time = exposure_time
         self.selected_image_files = image_files
-        self.selected_image_counts = image_counts  # Number of frames summed into each bin
+        self.selected_image_info = image_info  # Number of frames and subtracted sky of each bin
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         self.fig.subplots_adjust(bottom=0.25)  # Leaving space at the bottom for buttons
         self.display_image()
@@ -917,18 +950,14 @@ class AperturePhotometryTool:
                     F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
                     F_star_net = F_star_raw - (sky_per_pixel * n_pix)
 
-                    # Get Additional noise sources (read noise, dark current, flat noise)
-                    # NOTE: Dark and read noise are per-frame values in ADU/pix, converted to e/pix in the noise equation.
-                    #       The flat noise is a fractional (dimensionless) per-pixel uncertainty.
-                    F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{exp_time}s', 'Uncertainty'].values[0]
-                    F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
-                    flat_noise_frac = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
+                    # Number of frames summed into this bin, and the sky the reduction subtracted from them.
+                    # The subtracted sky's photon noise is still in the image, so it is added back for the noise estimate
+                    bin_info = self.selected_image_info[filter_name][bin_index]
+                    n_frames = bin_info['n_frames']
+                    total_sky_per_pixel = sky_per_pixel + bin_info['sky_subtracted'] * gain  # [e-/pix]
 
-                    # Number of frames summed into this bin
-                    n_frames = self.selected_image_counts[filter_name][bin_index]
-
-                    noise = aperture_flux_noise(image_data, star_aperture[0], F_star_net, sky_per_pixel, n_pix, n_b,
-                                                n_frames, F_D_adu, F_R_adu, flat_noise_frac)
+                    noise = aperture_flux_noise(image_data, star_aperture[0], F_star_net, total_sky_per_pixel, n_pix, n_b,
+                                                n_frames, exp_time, filter_name)
 
                     # Calculating instrumental magnitude for the star (total exposure time of the summed frames)
                     inst_mag = -2.5 *np.log10(F_star_net / (n_frames * exp_time)) if F_star_net > 0 else np.inf
@@ -960,14 +989,14 @@ class AperturePhotometryTool:
 
 class AperturePhotometryToolPart2:
 
-    def __init__(self, selected_image, exposure_time, other_frames_dict, other_frames_exptime_dict, other_frames_files_dict, other_frames_counts_dict, bg_position, bg_radius, reference_apertures_dict, photometry_dict):
+    def __init__(self, selected_image, exposure_time, other_frames_dict, other_frames_exptime_dict, other_frames_files_dict, other_frames_info_dict, bg_position, bg_radius, reference_apertures_dict, photometry_dict):
 
         self.selected_image = selected_image # Using the first selected image for display
         self.selected_exposure_time = exposure_time
         self.other_frames_dict = other_frames_dict
         self.other_frames_exptime_dict = other_frames_exptime_dict
         self.other_frames_files_dict = other_frames_files_dict
-        self.other_frames_counts_dict = other_frames_counts_dict  # Number of frames summed into each bin
+        self.other_frames_info_dict = other_frames_info_dict  # Number of frames and subtracted sky of each bin
         self.filters = list(self.other_frames_dict.keys())
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6)) # Create 2 subplots
         self.ax2.set_aspect('equal', adjustable='box')  # Set equal aspect ratio for the second subplot
@@ -1517,18 +1546,14 @@ class AperturePhotometryToolPart2:
                     F_star_raw = star_phot_table['aperture_sum_0'][0] * gain
                     F_star_net = F_star_raw - (sky_per_pixel * n_pix)
 
-                    # Get Additional noise sources (read noise, dark current, flat noise)
-                    # NOTE: Dark and read noise are per-frame values in ADU/pix, converted to e/pix in the noise equation.
-                    #       The flat noise is a fractional (dimensionless) per-pixel uncertainty.
-                    F_D_adu = uncertainties_df.loc[uncertainties_df['Key'] == f'Dark_Current_{exp_time}s', 'Uncertainty'].values[0]
-                    F_R_adu = uncertainties_df.loc[uncertainties_df['Key'] == 'Read_Noise', 'Uncertainty'].values[0]
-                    flat_noise_frac = uncertainties_df.loc[uncertainties_df['Key'] == f'Flat_{filter_name}_Noise', 'Uncertainty'].values[0]
+                    # Number of frames summed into this bin, and the sky the reduction subtracted from them.
+                    # The subtracted sky's photon noise is still in the image, so it is added back for the noise estimate
+                    bin_info = self.other_frames_info_dict[filter_name][bin_index]
+                    n_frames = bin_info['n_frames']
+                    total_sky_per_pixel = sky_per_pixel + bin_info['sky_subtracted'] * gain  # [e-/pix]
 
-                    # Number of frames summed into this bin
-                    n_frames = self.other_frames_counts_dict[filter_name][bin_index]
-
-                    noise = aperture_flux_noise(image_data, star_aperture[0], F_star_net, sky_per_pixel, n_pix, n_b,
-                                                n_frames, F_D_adu, F_R_adu, flat_noise_frac)
+                    noise = aperture_flux_noise(image_data, star_aperture[0], F_star_net, total_sky_per_pixel, n_pix, n_b,
+                                                n_frames, exp_time, filter_name)
 
                     # Calculating instrumental magnitude for the star (net flux in e-, total exposure time of the summed frames)
                     inst_mag = -2.5 * np.log10(F_star_net / (n_frames * exp_time)) if F_star_net > 0 else np.inf
@@ -1582,7 +1607,7 @@ if __name__ == '__main__':
             median_selected_image_class.selected_image,
             median_selected_image_class.selected_exposure_time,
             median_selected_image_class.selected_image_files,
-            median_selected_image_class.selected_image_counts
+            median_selected_image_class.selected_image_info
         )
         plt.show()
 
@@ -1594,7 +1619,7 @@ if __name__ == '__main__':
                 median_selected_image_class.other_frames_dict,
                 median_selected_image_class.other_frames_exptime_dict,
                 median_selected_image_class.other_frames_files_dict,
-                median_selected_image_class.other_frames_counts_dict,
+                median_selected_image_class.other_frames_info_dict,
                 aperture_photometry_class.bg_position,
                 aperture_photometry_class.bg_radius,
                 aperture_photometry_class.reference_apertures_dict,
