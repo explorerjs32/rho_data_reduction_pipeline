@@ -415,17 +415,23 @@ class Compute_PSF_Photometry:
                 flux_out = flux_adu* gain
                 self.photometry[filename][f"Flux_Star_{star_num}"] = flux_out
                 
-                # Calculate flux uncertainty
+                # Number of frames co-added into this image (1 when no binning was requested)
+                n_frames = frame_row.get('Images_In_Bin', 1)
+
+                # Calculate flux uncertainty. The flux comes from the co-added image, so its shot noise already
+                # includes all frames; dark and read noise are per-frame values and are added once per frame.
+                # The flat noise is a fractional per-pixel error: summing (pixel * flat_noise)^2 over a Gaussian
+                # PSF gives (flat_noise * flux)^2 / npix_eff.
                 flux_noise = np.sqrt(
                     (flux_out) + # Shot noise
-                    (npix_eff * dark_current * gain) +  # Dark current noise
-                    (npix_eff * (flat_noise * gain)**2.) +  # Flat field noise
-                    (npix_eff * (read_noise * gain)**2)  # Read noise
+                    (npix_eff * n_frames * dark_current * gain) +  # Dark current noise
+                    (npix_eff * n_frames * (read_noise * gain)**2) +  # Read noise
+                    ((flat_noise * flux_out)**2 / npix_eff)  # Flat field noise
                 )
                 self.photometry[filename][f"Flux_err_Star_{star_num}"] = flux_noise
-                
-                # Calculate instrumental magnitude and error
-                minst = -2.5 * np.log10(flux_out/exptime)
+
+                # Calculate instrumental magnitude and error (total exposure time of the co-added frames)
+                minst = -2.5 * np.log10(flux_out / (n_frames * exptime))
                 minst_err = (2.5 / np.log(10)) * (flux_noise / flux_out)
                 
                 self.photometry[filename][f"Minst_Star_{star_num}"] = minst
