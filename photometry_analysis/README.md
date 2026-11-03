@@ -52,10 +52,13 @@ Before using either tool, ensure you have:
     - `Exptime`: Exposure time in seconds
     - `Filter`: Filter used for observation
     - *Optional (For PSF Tool)*: DATE-OBS, RA, DEC for BJD calculation
-3. An `uncertainties.csv` file in the directory with space-separated columns:
-    - `Read_Noise`: Detector read noise
-    - `Dark_Current_<exptime>s`: Dark current for specific exposure times
-    - `Flat_<filter>_Noise`: Flat field noise for specific filters
+3. An `uncertainties.csv` file in the directory with space-separated columns (written by the image reduction scripts):
+    - `Gain`: Detector gain [e-/ADU]
+    - `Read_Noise`: Detector read noise [ADU]
+    - `Dark_Current_Rate`: Dark current [e-/pixel/s]; multiplied by the exposure time to get the dark signal of a frame
+    - `Master_Dark_Noise_<exptime>s`: Uncertainty of each pixel of the master dark [ADU]
+    - `Flat_<filter>_Noise`: Fractional uncertainty of each pixel of the normalized master flat
+4. A `SKYSUB` header card in each reduced image: the sky level [ADU/pixel] removed by the background subtraction. Its photon noise is still in the image, so the photometry adds it back into the noise estimate.
 
 ---
 
@@ -143,27 +146,30 @@ The Aperture photometry process includes:
 
 ### Uncertainty Calculations
 **Aperture Sum Uncertainty:**
-The aperture sum uncertainty $N_{*}$ is calculated by combining multiple noise sources in quadrature:
+The aperture sum uncertainty $N_{*}$ follows the CCD equation (Collins et al. 2017, Appendix B, Eq. 7), extended for bins of $N$ co-added images and for the noise of the master dark and flat. All quantities are in electrons:
 
-$N_{*} = \sqrt((F_{*_net}) + n_{pix} * (1 + (n_{pix}/{n_back})) * ((sky_{per_pixel}) + F_{D_adu}*gain + (F_{R_adu}*gain)**2 + (F_{flat_adu}*gain)**2))$
+$N_{*} = \sqrt{F_{*} + n_{pix} (1 + n_{pix}/n_{back}) (S + N (D + R^2)) + n_{pix} N^2 \sigma_{MD}^2 + \sigma_f^2 \sum_{ap} P_i^2}$
 
 Where:
-- $gain$ is the Gain of the CCD (0.37 [e/ADU])
-- $F_{*_net}$ is the measured star flux in [ADU/pixel]
+- $F_{*}$ is the net (sky-subtracted) star flux [e-], measured on the co-added image
 - $n_{pix}$ is the number of pixels inside the aperture measuring star flux
 - $n_{back}$ is the number of pixels inside the aperture measuring background flux
-- $sky_{per_pixel}$ is the per-pixel sky background in [e/pixel]
-- $F_{D_adu}$ is the measured dark current in [ADU/pixel]
-- $F_{flat_adu}$ is the measured flat frame noise in [ADU/pixel]
-- $F_{R_adu}$ is the read noise in [ADU/pixel]
+- $S$ is the sky per pixel [e-/pixel] of the co-added image: the residual measured in the background aperture plus the sum of the `SKYSUB` levels removed by the reduction
+- $N$ is the number of images co-added into the bin
+- $D$ is the dark signal of one frame [e-/pixel] (`Dark_Current_Rate` × exposure time). Dark subtraction removes the mean dark signal but not its Poisson noise
+- $R$ is the read noise [e-] (`Read_Noise` × gain)
+- $\sigma_{MD}$ is the uncertainty of a pixel of the master dark [e-] (`Master_Dark_Noise_<exptime>s` × gain)
+- $\sigma_f$ is the fractional flat-field uncertainty and $P_i$ the pixel values [e-] inside the aperture
+
+The master dark and flat are the same in every frame, so their errors add up coherently in a sum of frames: the master dark term grows as $N^2$ rather than $N$, and the flat term scales with the summed signal. This is exact when the stars stay on the same detector pixels (minimal drift) and an upper limit otherwise. For co-added bins, the master dark noise stays below the read noise contribution as long as the number of dark frames is at least about 1.6 × the number of light frames per bin.
 
 **Instrumental Magnitude Uncertainty:**
-The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation:
+The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation, with the total exposure time of the co-added images:
 
-$m = -2.5 \log (aperture_sum / t)$
+$m = -2.5 \log (F_{*} / (N t))$
 
 Its associated uncertainty is then given by:
-$\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / aperture_sum)$
+$\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / F_{*})$
 
 The factor $2.5 / \log(10) \approx 1.0857$ represents the propagation of relative flux error to magnitude units.
 
@@ -243,25 +249,27 @@ The PSF photometry process includes:
 
 ### Uncertainty Calculations
 **Flux Uncertainty:**
-The flux uncertainty $N_{*}$ is calculated by combining multiple noise sources in quadrature:
+The flux uncertainty $N_{*}$ is calculated by combining multiple noise sources in quadrature. All quantities are in electrons:
 
-$N_{*} = \sqrt{GF_{*} + (n_{pix}GF_{D}) + (n_{pix}GF_{F}) + (n_{pix}(GF_{R})^2)}$
+$N_{*} = \sqrt{F_{*} + n_{eff} S + n_{eff} N (D + R^2) + n_{eff} N^2 \sigma_{MD}^2 + (\sigma_f F_{*})^2 / n_{eff}}$
 
 Where:
-- $G$ is the Gain of the CCD (0.37 [e/ADU])
-- $F_{*}$ is the measured star flux in [ADU/pixel]
-- $n_{pix}$ is the number of pixels inside the PSF measuring star flux
-- $F_{D}$ is the measured dark current in [ADU/pixel]
-- $F_{F}$ is the measured flat frame noise in [ADU/pixel]
-- $F_{R}$ is the read noise in [ADU/pixel]
+- $F_{*}$ is the star flux [e-] (volume of the fitted Gaussian × gain), measured on the co-added image
+- $n_{eff} = 4 \pi \sigma_x \sigma_y$ is the effective number of pixels of the fitted PSF
+- $S$ is the sky per pixel [e-/pixel] of the co-added image: the sum of the `SKYSUB` levels removed by the reduction plus any residual sky fitted by the model
+- $N$ is the number of images co-added into the bin
+- $D$ is the dark signal of one frame [e-/pixel] (`Dark_Current_Rate` × exposure time)
+- $R$ is the read noise [e-] (`Read_Noise` × gain)
+- $\sigma_{MD}$ is the uncertainty of a pixel of the master dark [e-] (`Master_Dark_Noise_<exptime>s` × gain); it grows as $N^2$ because the same master dark is subtracted from every frame
+- $\sigma_f$ is the fractional flat-field uncertainty; for a Gaussian PSF, $\sum (\sigma_f P_i)^2 = (\sigma_f F_{*})^2 / n_{eff}$, where $P_i$ are the pixel values [e-]
 
 **Instrumental Magnitude Uncertainty:**
-The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation:
+The instrumental magnitude uncertainty is derived from the flux uncertainty through error propagation from the magnitude equation, with the total exposure time of the co-added images:
 
-$m = -2.5 \log (F_{*}G / t)$
+$m = -2.5 \log (F_{*} / (N t))$
 
 Its associated uncertainty is then given by:
-$\sigma_{inst} = (2.5 / \ln 10) * (\sigma_{F_{*}} / F_{*}G)$
+$\sigma_{inst} = (2.5 / \ln 10) * (N_{*} / F_{*})$
 
 The factor $2.5 / \log(10) \approx 1.0857$ represents the propagation of relative flux error to magnitude units.
 

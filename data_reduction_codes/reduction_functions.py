@@ -21,8 +21,24 @@ from alignment import ImageAlignmentTool
 
 # Filter the FutureWarning about sep package
 import warnings
-warnings.filterwarnings('ignore', category=FutureWarning, 
+warnings.filterwarnings('ignore', category=FutureWarning,
                        module='importlib._bootstrap')
+
+# Gain of the RHO camera [e-/ADU], used when the raw headers have no GAIN card.
+# Consistent with the photon-transfer measurement (0.377) from the 2025-02-17 WASP-36b flats.
+DEFAULT_GAIN = 0.37
+
+
+def get_gain(frame_info_df):
+    """
+    Returns the detector gain [e-/ADU] from the GAIN card of the first light frame, or DEFAULT_GAIN if it is missing.
+    """
+    light_df = frame_info_df[frame_info_df['Frame'] == 'Light']
+    if len(light_df) > 0:
+        header = fits.getheader(os.path.join(light_df['Directory'].iloc[0], light_df['Files'].iloc[0]))
+        if 'GAIN' in header:
+            return float(header['GAIN'])
+    return DEFAULT_GAIN
 
 
 def str2bool(v):
@@ -201,6 +217,7 @@ def create_master_bias(frame_info_df, log):
     Returns:
         master_bias: (2D array of integers) Median of master bias data used for subsequent
         calculations
+        master_bias_noise: (float) Read noise [ADU], the typical scatter of a pixel from one bias frame to the next
 
     '''
 
@@ -215,12 +232,15 @@ def create_master_bias(frame_info_df, log):
 
     # Using median combine to form a final master bias frame and then return it
     master_bias = np.median(biases_data, axis=0)
-    noise = np.std(biases_data, axis = 0) 
-    master_bias_noise = np.mean(noise)
+
+    # Read noise: per-pixel scatter through the stack of bias frames. The median over pixels is not
+    # pulled up by hot pixels the way the mean is
+    noise = np.std(biases_data, axis=0, ddof=1)
+    master_bias_noise = np.median(noise)
    
     return master_bias, master_bias_noise
 
-def create_master_darks(frame_info_df, master_bias, log, times):
+def create_master_darks(frame_info_df, master_bias, read_noise, gain, log, times):
     """
     Creates a list of master darks from the information in the two dataframes.
 
@@ -230,6 +250,9 @@ def create_master_darks(frame_info_df, master_bias, log, times):
 
     Args:
         frame_info_df: the frame information dataframe
+        master_bias: 2D array of the master bias frame
+        read_noise: read noise [ADU]
+        gain: detector gain [e-/ADU]
         log: List of strings containing logging to be added to the log txt file
 
     Returns:
@@ -237,6 +260,12 @@ def create_master_darks(frame_info_df, master_bias, log, times):
         master_darks: a dictionary of master darks. Each object in the list is fits data.
             Key: "master_darks_[0.0]s" where [0.0] is replaced with the exposure time
             Value: fits data (2D array of pixel counts)
+        dark_uncertainties: a dictionary with
+            "Dark_Current_Rate": dark current [e-/pixel/s]. Multiply by the exposure time of a light frame to get
+                the dark signal in that frame.
+            "Master_Dark_Noise_[0.0]s": uncertainty of each pixel of that master dark [ADU]. The same master dark is
+                subtracted from every light frame, so this does not average down when frames are co-added (the
+                photometry scales it with N^2). Also used for the flat-field uncertainty, since the flats are dark-subtracted.
     """
 
     # Creating the master darks- one for each exposure time.
@@ -247,35 +276,44 @@ def create_master_darks(frame_info_df, master_bias, log, times):
     # Go through the darks of that exposure length to create the master-
     master_darks = {}
     dark_uncertainties = {}
+    dark_signals = []
 
     for exp in dark_exposure_times:
         darks_exp = []
 
         for index, row in darks_df.iterrows():
             if (row["Exptime"] == exp):
-                darks_exp.append(fits.getdata(os.path.join(row['Directory'], row['Files'])))
+                darks_exp.append(fits.getdata(os.path.join(row['Directory'], row['Files'])).astype(float))
 
         master_darks["master_dark_" + str(exp) + "s"] = np.median(np.array(darks_exp), axis=0)
 
-        # Removing read noise from dark frames to get the dark current
-        darks_exp_array = np.array(darks_exp)
-        debiased_dark_frames = darks_exp_array - master_bias
+        # Typical dark signal accumulated during this exposure, with the bias removed [ADU/pixel]
+        dark_signal = np.median(master_darks["master_dark_" + str(exp) + "s"] - master_bias)
+        dark_signals.append(dark_signal)
 
-        # Taking median twice from the bias subtracted darks
-        debiased_master_dark_stddev = np.std(debiased_dark_frames, axis=0)
-
-        # Updating dictionary entry for dark current
-        dark_current = np.mean(debiased_master_dark_stddev) / np.sqrt(debiased_dark_frames.size)
-        dark_uncertainties["Dark_Current_" + str(exp) + "s"] = dark_current
+        # Uncertainty of each pixel of the master dark [ADU]: Poisson noise of the dark signal (computed in electrons)
+        # plus read noise for a single frame, reduced by the median combination of N frames (sqrt(pi/2) / sqrt(N))
+        single_dark_noise = np.sqrt(max(dark_signal, 0) / gain + read_noise**2)
+        dark_uncertainties["Master_Dark_Noise_" + str(exp) + "s"] = np.sqrt(np.pi / 2) * single_dark_noise / np.sqrt(len(darks_exp))
 
         # Logging master darks created
         if exp in times:
             log += ["Master_dark_" + str(exp) + "s created. " + str(len(darks_exp)) + " frames were found\n"]
 
+    # Dark current rate [e-/pixel/s]. With several exposure times, the slope of the dark signal vs. exposure time
+    # also removes any constant offset between the bias and dark frames that is not dark current
+    if len(dark_exposure_times) > 1:
+        dark_rate_adu = np.polyfit(dark_exposure_times, dark_signals, 1)[0]
+    else:
+        dark_rate_adu = dark_signals[0] / dark_exposure_times[0]
+    dark_uncertainties["Dark_Current_Rate"] = max(dark_rate_adu, 0) * gain
+
+    log += [f"Dark current rate: {dark_uncertainties['Dark_Current_Rate']:.3f} e-/pixel/s\n"]
+
     # return the darks and the times they correlate to.
     return dark_exposure_times, master_darks, dark_uncertainties
 
-def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, read_noise, dark_currents, log, filters):
+def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias, read_noise, dark_uncertainties, gain, log, filters):
     """
      Creates a dictionary of normalized master flats for each filter from the frame information dataframe.
 
@@ -293,6 +331,9 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
         master_darks (dict): Dictionary of master darks. Keys are strings formatted as "master_dark_[exptime]s" where
             [exptime] is the exposure time, and values are 2D numpy arrays representing the master dark frames.
         master_bias (numpy.ndarray): 2D numpy array representing the master bias frame.
+        read_noise (float): Read noise [ADU].
+        dark_uncertainties (dict): Output of create_master_darks, containing "Master_Dark_Noise_[exptime]s".
+        gain (float): Detector gain [e-/ADU].
         log: List of strings containing logging to be added to the log txt file
 
     Returns:
@@ -301,6 +342,8 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
             - master_flats (dict): A dictionary of master flats. Each key is a string "master_flat_[FilterName]" where
               [FilterName] is the filter name, and each value is a 2D numpy array representing the normalized master
               flat for that filter.
+            - flat_uncertainties (dict): "Flat_[FilterName]_Noise", the fractional (dimensionless) uncertainty of a
+              pixel of the normalized master flat.
     """
 
     # Isolate the flat frames from the dataframe
@@ -311,8 +354,13 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
     master_flats = {}
     flat_uncertainties = {}
 
+    # Uncertainty of each pixel of the master bias [ADU], used when a flat has no matching master dark
+    n_bias = (frame_info_df['Frame'] == 'Bias').sum()
+    master_bias_noise = np.sqrt(np.pi / 2) * read_noise / np.sqrt(n_bias)
+
     for filter_name in flat_filters:
         flats_filter = []
+        calibration_noise = []  # Uncertainty of the master dark/bias subtracted from each flat [ADU]
 
         for index, row in flats_df.iterrows():
             # Get the exposure time of the flat frame
@@ -321,28 +369,26 @@ def create_master_flats(frame_info_df, darks_exptimes, master_darks, master_bias
             if flat_exptime in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flats_filter.append(
                     fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_darks[f"master_dark_{flat_exptime}s"])
-                
-                # Get the dark current out
-                dark_current = dark_currents[f"Dark_Current_{flat_exptime}s"]
+                calibration_noise.append(dark_uncertainties[f"Master_Dark_Noise_{flat_exptime}s"])
 
             elif flat_exptime not in darks_exptimes and fits.getheader(os.path.join(row['Directory'], row['Files']))['FILTER'] == filter_name:
                 flats_filter.append(fits.getdata(os.path.join(row['Directory'], row['Files'])) - master_bias)
-                dark_current = 0.
+                calibration_noise.append(master_bias_noise)
 
         # Combine the flats and normalize the master flat
         master_flat = np.mean(np.array(flats_filter), axis=0)
         normalized_master_flat = master_flat / np.mean(master_flat)
         master_flats["master_flat_" + filter_name] = normalized_master_flat
 
-        # Calculate the photon noise of the master flat
-        flat_photon_noise = np.mean(master_flat**0.5)
+        # Variance of a pixel of the mean-combined master flat [ADU^2]. The photon noise (counted in electrons, so
+        # signal / gain in ADU^2) and the read noise of each flat average down over the N flats. The master dark/bias
+        # subtracted from every flat is the same frame, so its noise does not average down.
+        flat_level = np.mean(master_flat)
+        flat_variance = (flat_level / gain + read_noise**2) / len(flats_filter) + np.mean(np.square(calibration_noise))
 
-        # Compute the total and average flat noise
-        total_flat_noise = ((read_noise**2.) + (dark_current**2.) + (flat_photon_noise**2.))
-        average_flat_uncertainty = total_flat_noise / np.sqrt(np.array(flats_filter).size)
-
-        # Compute the normalized flat filed uncertainty
-        norm_flat_field_noise = average_flat_uncertainty / np.mean(master_flat)
+        # Fractional uncertainty of a pixel of the normalized master flat. Dividing an image by the flat changes
+        # each pixel by this fraction, so in the photometry it multiplies the signal in each pixel
+        norm_flat_field_noise = np.sqrt(flat_variance) / flat_level
 
         # Updating flat_uncertainties dictionary
         flat_uncertainties["Flat_" + filter_name + "_Noise"] = norm_flat_field_noise
@@ -368,6 +414,8 @@ def background_subtraction(image, log):
 
     Returns:
         numpy.ndarray: The background-subtracted image.
+        float: The median sky level that was subtracted [ADU/pixel]. The sky's photon noise is still in the image after
+               the subtraction, so the photometry needs this level for its noise estimate.
     """
     # Define the paameters to estimate the the sky background of the image
     # A non-uniform background brightness is going to be assumed
@@ -389,13 +437,13 @@ def background_subtraction(image, log):
         bkg_subtracted_image = image - bkg.background
 
         log += ["Subtracted background\n"]
-            
-        return bkg_subtracted_image
-    
+
+        return bkg_subtracted_image, np.median(bkg.background)
+
     except(AttributeError):
         log += ["Background Subtraction skipped\n"]
 
-        return image
+        return image, 0.
 
 def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, background_subtract):
     """
@@ -416,8 +464,10 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
         log: List of strings containing logging to be added to the log txt file
 
     Returns:
-        dict: Dictionary of reduced images, keyed by the original file names. Each value is a 2D numpy array representing 
+        dict: Dictionary of reduced images, keyed by the original file names. Each value is a 2D numpy array representing
               the reduced image, with the background subtracted and bad pixels masked.
+        dict: Dictionary of the sky level subtracted from each image [ADU/pixel], organized like the reduced images
+              (0 when background subtraction is off or skipped).
     """
 
     # Initializes a dataframe containing all the information on raw images
@@ -426,8 +476,9 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
     # Get the unique objects that were observed
     objects = raw_image_df['Object'].unique()
 
-    # Define a dictionary to stored the reduced frames per object
+    # Define a dictionary to stored the reduced frames per object, and the sky level subtracted from each frame
     master_reduced_frames = {}
+    master_sky_levels = {}
 
     # Interpolate over the different objects to reduced the data
     for object in objects:
@@ -439,6 +490,7 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
 
         # Initialize the image reduced final product
         reduced_images = {}
+        sky_levels = {}
 
         # Create the flat masks from reduced flats
         def bad_pixel(pixel_data):
@@ -525,11 +577,12 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
             # Check if the background subtraction is ON
             if background_subtract:
                 # Subtract the background of the reduced image
-                bkg_subtracted_reduced_image = background_subtraction(reduced_image, log)
+                bkg_subtracted_reduced_image, sky_level = background_subtraction(reduced_image, log)
 
             elif not background_subtract:
                 # If background subtraction is OFF, just use the reduced image
                 bkg_subtracted_reduced_image = reduced_image
+                sky_level = 0.
                 log += ["Background Subtraction skipped\n"]
 
             # Mask the bad pixels (MBP) in the background subtracted reduced science images
@@ -543,13 +596,15 @@ def image_reduction(frame_info_df, dark_times, master_darks, flat_filters, maste
                 log += ["Removed bad pixels\n"]
 
             # Store the final reduced image into the list
-            reduced_images[file] = final_reduced_image        
-            
+            reduced_images[file] = final_reduced_image
+            sky_levels[file] = sky_level
+
             log += [file + " reduced!\n\n"]
 
         master_reduced_frames[object] = reduced_images
+        master_sky_levels[object] = sky_levels
 
-    return master_reduced_frames
+    return master_reduced_frames, master_sky_levels
 
 def align_images(master_reduced_data, log):
     """
@@ -648,7 +703,8 @@ def align_images(master_reduced_data, log):
 
     return master_aligned_images
 
-def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict, overwrite=False):
+def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict,
+                master_sky_levels, gain, overwrite=False):
     '''
     Creates and navigates to the new folder, then iterates through the dictionary of aligned images to get the headers
     associated with the original raw image. The data for each image and headers are combined into a new fits file
@@ -659,9 +715,11 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
         master_aligned_images: Dictionary of aligned images organized by object
         output_dir: Directory where the reduced data will be saved
         log: List of strings containing logging to be added to the log txt file
-        master_bias_noise: Read noise from the master bias
-        uncertainties_dark_current: Dictionary of dark current uncertainties
-        flats_uncertainty_dict: Dictionary of flat field uncertainties
+        master_bias_noise: Read noise from the master bias [ADU]
+        uncertainties_dark_current: Dictionary with the dark current rate and master dark uncertainties (create_master_darks)
+        flats_uncertainty_dict: Dictionary of fractional flat field uncertainties
+        master_sky_levels: Dictionary of the sky level subtracted from each image [ADU/pixel], saved as SKYSUB in each header
+        gain: Detector gain [e-/ADU], saved as GAIN in each header (if not already present) and in uncertainties.csv
         overwrite: If True, allow overwriting existing reduced fits files instead of raising an error
 
     Returns:
@@ -762,7 +820,10 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
 
             # If it doesn't exist, add the GAIN to the header
             if 'GAIN' not in hdu.header:
-                hdu.header['GAIN'] = (0.37, 'Gain of the detector [e-/ADU]')
+                hdu.header['GAIN'] = (gain, 'Gain of the detector [e-/ADU]')
+
+            # Sky level removed by the background subtraction. Its photon noise is still in the image
+            hdu.header['SKYSUB'] = (master_sky_levels[object][file], 'Sky level subtracted [ADU/pix]')
 
             # Create new file name "object.time.reduced.fits"
             file_name = file[:-5] + "_reduced.fits"
@@ -771,14 +832,16 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
             hdu.writeto(os.path.join(final_dir, file_name), overwrite=overwrite)
 
         # Create object-specific uncertainties file
-        object_uncertainties = [("Read_Noise", master_bias_noise)]  # Read noise row
-        
-        # Add dark current uncertainties for exposure times used by this object
-        for exptime in object_unique_exptimes:
-            dark_key = f"Dark_Current_{exptime}s"
-            if dark_key in uncertainties_dark_current:
-                object_uncertainties.append((dark_key, uncertainties_dark_current[dark_key]))
-        
+        object_uncertainties = [("Gain", gain),                                                # [e-/ADU]
+                                ("Read_Noise", master_bias_noise),                             # [ADU]
+                                ("Dark_Current_Rate", uncertainties_dark_current["Dark_Current_Rate"])]  # [e-/pixel/s]
+
+        # Add the uncertainty of every master dark [ADU/pixel]. The photometry uses the one closest to the
+        # exposure time of the light frames, matching the dark that image_reduction subtracted
+        for dark_key, dark_noise in uncertainties_dark_current.items():
+            if dark_key.startswith("Master_Dark_Noise_"):
+                object_uncertainties.append((dark_key, dark_noise))
+
         # Add flat field uncertainties for filters used by this object
         for filter_name in object_unique_filters:
             flat_key = f"Flat_{filter_name}_Noise"

@@ -95,21 +95,24 @@ for obj in light_objects:
     master_bias, master_bias_noise = create_master_bias(frame_info_df, log)
     log += ["Done!\n\n"]
 
+    # Detector gain [e-/ADU], needed to compute photon noise
+    gain = get_gain(frame_info_df)
+
     # Create the master darks
     log += ["Creating Master Darks...\n"]
-    dark_times, master_darks, uncertainties_dark_current = create_master_darks(frame_info_df, master_bias, log, exp_times)
+    dark_times, master_darks, uncertainties_dark_current = create_master_darks(frame_info_df, master_bias, master_bias_noise, gain, log, exp_times)
     log += ["Done!\n\n"]
 
     # Create master flats
     log += ["Creating Master Flats...\n"]
-    flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, master_bias_noise, uncertainties_dark_current, log, filters)
+    flat_filters, master_flats, flats_uncertainty_dict = create_master_flats(frame_info_df, dark_times, master_darks, master_bias, master_bias_noise, uncertainties_dark_current, gain, log, filters)
     log += ["Done!\n\n"]
 
     print("Done creating Calibration frames\n")
 
     # Conduct image reduction process with new dataframe only including one object
     obj_frame_info_df = frame_info_df[frame_info_df["Object"] == obj]
-    reduced_images = image_reduction(obj_frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, bool(args.background_subtract))
+    reduced_images, sky_levels = image_reduction(obj_frame_info_df, dark_times, master_darks, flat_filters, master_flats, master_bias, log, bool(args.background_subtract))
     print("Done reducing the raw data\n")
 
     # Aligned the reduced images
@@ -117,7 +120,8 @@ for obj in light_objects:
     print("Done aligning images\n")
 
     # Create fits images and extract the information on reduced frames
-    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict, overwrite=bool(args.overwrite))
+    reduced_frames_df = create_fits(frame_info_df, aligned_images, output_dir, log, master_bias_noise, uncertainties_dark_current, flats_uncertainty_dict,
+                                    sky_levels, gain, overwrite=bool(args.overwrite))
     print("Done with the data reduction. See final report on " + output_dir)
 
     # Transferring log list of strings to the txt file
