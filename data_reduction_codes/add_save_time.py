@@ -8,23 +8,39 @@ Usage:
     python add_save_time.py -d /path/to/night1 /path/to/night2        # searches sub-directories too
     python add_save_time.py -d /path/to/night1 --dry-run              # preview only
     python add_save_time.py -d /path/to/night1 --overwrite            # replace existing SAVETIME
+    python add_save_time.py -d /path/to/night1 --use-mtime            # use last-modified time (no creation time)
 """
 import argparse
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 
 from astropy.io import fits
 
 
-def creation_time(path):
-    """Return the file creation time as a POSIX timestamp, or None if the platform can't provide it."""
+def creation_time(path, use_mtime=False):
+    """Return the file creation time as a POSIX timestamp, or None if the platform can't provide it.
+
+    If use_mtime is True, return the last-modified time instead. That is a good stand-in for the save
+    time as long as the file has not been edited since it was written (editing headers updates it).
+    """
     st = os.stat(path)
-    if hasattr(st, "st_birthtime"):          # macOS, Windows (Python 3.12+), some BSD/Linux
+    if use_mtime:
+        return st.st_mtime
+    if hasattr(st, "st_birthtime"):          # macOS, Windows (Python 3.12+), some BSD
         return st.st_birthtime
-    if sys.platform.startswith("win"):       # older Python on Windows: st_ctime is creation time
+    if sys.platform.startswith(("win", "cygwin")):   # older Python on Windows: st_ctime is creation time
         return st.st_ctime
-    return None                              # Linux: st_ctime is NOT creation time
+    # Linux: os.stat has no birth time (st_ctime is the last metadata change, NOT creation).
+    # GNU stat can read it through statx if the kernel and filesystem support it; it prints 0 or -
+    # when the birth time is unknown.
+    try:
+        out = subprocess.run(["stat", "-c", "%W", path], capture_output=True, text=True, check=True).stdout.strip()
+        birth = int(out)
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return None
+    return birth if birth > 0 else None
 
 
 def find_fits(directories):
@@ -41,14 +57,17 @@ def main():
                         help="One or more observation directories (searched recursively).")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be written without modifying files.")
     parser.add_argument("--overwrite", action="store_true", help="Replace SAVETIME if it already exists.")
+    parser.add_argument("--use-mtime", action="store_true",
+                        help="Use the file's last-modified time instead of its creation time "
+                             "(fallback for systems that don't record creation time).")
     args = parser.parse_args()
 
     n_written = n_skipped = n_failed = 0
 
     for path in find_fits(args.dir):
-        timestamp = creation_time(path)
+        timestamp = creation_time(path, use_mtime=args.use_mtime)
         if timestamp is None:
-            print(f"FAILED  {path}: this platform does not expose a file creation time")
+            print(f"FAILED  {path}: no file creation time available on this system (try --use-mtime)")
             n_failed += 1
             continue
 
