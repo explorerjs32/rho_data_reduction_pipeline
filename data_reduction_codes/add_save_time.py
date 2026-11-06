@@ -79,13 +79,29 @@ def main():
             print(f"WOULD SET {path}: SAVETIME={save_time}")
             continue
 
-        with fits.open(path, mode="update") as hdul:
-            header = hdul[0].header
-            if "SAVETIME" in header and not args.overwrite:
-                print(f"SKIPPED {path}: SAVETIME already set ({header['SAVETIME']})")
-                n_skipped += 1
-                continue
-            header["SAVETIME"] = (save_time, "file creation date UTC")
+        try:
+            # memmap=False avoids "seek of closed file" errors when astropy has to rewrite the file in place.
+            hdul = fits.open(path, mode="update", memmap=False)
+            try:
+                header = hdul[0].header
+                already_set = "SAVETIME" in header and not args.overwrite
+                if already_set:
+                    skipped_value = header["SAVETIME"]
+                else:
+                    header["SAVETIME"] = (save_time, "file creation date UTC")
+            finally:
+                # Some cameras write cards that aren't strictly FITS-standard (e.g. CENTRDX). By default
+                # astropy raises an error on save; 'silentfix' repairs the card formatting and keeps its value.
+                hdul.close(output_verify="silentfix")
+        except Exception as err:             # keep going so one bad file doesn't block the rest
+            print(f"FAILED  {path}: {type(err).__name__}: {err}")
+            n_failed += 1
+            continue
+
+        if already_set:
+            print(f"SKIPPED {path}: SAVETIME already set ({skipped_value})")
+            n_skipped += 1
+            continue
         print(f"SET     {path}: SAVETIME={save_time}")
         n_written += 1
 
