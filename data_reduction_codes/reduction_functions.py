@@ -818,9 +818,8 @@ def create_fits(frame_info_df, master_aligned_images, output_dir, log, master_bi
             if 'FWHM' in hdu.header:
                 del hdu.header['FWHM']
 
-            # If it doesn't exist, add the GAIN to the header
-            if 'GAIN' not in hdu.header:
-                hdu.header['GAIN'] = (gain, 'Gain of the detector [e-/ADU]')
+            # Write the GAIN as a number (some cameras write it as a string, e.g. '0.37')
+            hdu.header['GAIN'] = (float(gain), 'Gain of the detector [e-/ADU]')
 
             # Sky level removed by the background subtraction. Its photon noise is still in the image
             hdu.header['SKYSUB'] = (master_sky_levels[object][file], 'Sky level subtracted [ADU/pix]')
