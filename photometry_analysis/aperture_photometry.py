@@ -86,9 +86,8 @@ def get_frame_info(directories):
                 dates.append(header.get('DATE-OBS', 'Unknown'))
                 filters.append(header.get('FILTER', 'Unknown'))
                 exposure_times.append(header.get('EXPTIME', 'Unknown'))
-                gain = header.get('GAIN', 'Unknown')
-                if gain == 'Unknown':
-                    gain = 0.37
+                # Some cameras write GAIN as a string (e.g. '0.37'), so convert it to a number
+                gain = float(header.get('GAIN', 0.37))
             except Exception as e:
                 print(f"Error processing file {file} in {directory}: {e}")
                 continue
